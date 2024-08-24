@@ -55,6 +55,7 @@ class AutodiffReconstructor(Reconstructor):
     def build(self) -> None:
         super().build()
         self.build_dataloader()
+        self.build_forward_model()
         
     def build_dataloader(self):
         self.dataloader = DataLoader(self.dataset, 
@@ -63,7 +64,7 @@ class AutodiffReconstructor(Reconstructor):
                                      shuffle=True)
         
     def build_forward_model(self):
-        self.forward_model = torch.nn.DataParallel(self.forward_model)
+        # self.forward_model = torch.nn.DataParallel(self.forward_model)
         self.forward_model.to(torch.get_default_device())
         
     def run(self, *args, **kwargs):

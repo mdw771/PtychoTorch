@@ -56,6 +56,8 @@ def fourier_shift(images: Tensor, shifts: Tensor) -> Tensor:
     """
     ft_images = torch.fft.fft2(images)
     freq_y, freq_x = torch.meshgrid(torch.fft.fftfreq(images.shape[-2]), torch.fft.fftfreq(images.shape[-1]), indexing='ij')
+    freq_x = freq_x.to(ft_images.device)
+    freq_y = freq_y.to(ft_images.device)
     freq_x = freq_x.repeat(images.shape[0], 1, 1)
     freq_y = freq_y.repeat(images.shape[0], 1, 1)
     mult = torch.exp(1j * -2 * torch.pi * (freq_x * shifts[:, 1].view(-1, 1, 1) + freq_y * shifts[:, 0].view(-1, 1, 1)))

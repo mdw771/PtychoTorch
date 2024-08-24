@@ -11,9 +11,6 @@ from ptytorch.utils import (get_suggested_object_size, set_default_complex_dtype
 from ptytorch.reconstructors import AutodiffReconstructor
 from ptytorch.metrics import MSELossOfSqrt
 
-from ptychodus.plugins.h5DiffractionFile import H5DiffractionFileReader
-from ptychodus.plugins.h5ProductFile import H5ProductFileIO
-
 
 torch.set_default_device('cuda')
 torch.set_default_dtype(torch.float32)
@@ -34,13 +31,13 @@ object = Object2D(
     pixel_size_m=pixel_size_m,
     optimizable=True,
     optimizer_class=torch.optim.Adam,
-    optimizer_params={'lr': 1e-4}
+    optimizer_params={'lr': 1e-3}
 )
 probe = Probe(
     data=probe,
     optimizable=True,
     optimizer_class=torch.optim.Adam,
-    optimizer_params={'lr': 1e-4}
+    optimizer_params={'lr': 1e-6}
 )
 probe_positions = ProbePositions(
     data=positions_px,
@@ -60,7 +57,7 @@ reconstructor = AutodiffReconstructor(
     forward_model=forward_model,
     batch_size=96,
     loss_function=MSELossOfSqrt(),
-    n_epochs=128
+    n_epochs=64
 )
 reconstructor.build()
 reconstructor.run()
