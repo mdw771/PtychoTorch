@@ -1,5 +1,6 @@
 import torch
 from torch import Tensor
+from torch.nn import ModuleList
 
 from ptytorch.data_structures import Variable, Object2D, Probe, ProbePositions
 
@@ -8,7 +9,7 @@ class ForwardModel(torch.nn.Module):
     
     def __init__(self):
         super().__init__()
-        self.optimizable_variables: list[Variable] = []
+        self.optimizable_variables: ModuleList[Variable] = ModuleList()
         
     def register_optimizable_parameters(self):
         raise NotImplementedError

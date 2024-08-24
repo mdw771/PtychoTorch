@@ -2,6 +2,7 @@ from typing import Optional, Union, Tuple, Type
 
 import torch
 from torch import Tensor
+from torch.nn import Module, Parameter
 import numpy as np
 from numpy import ndarray
 
@@ -9,11 +10,10 @@ import ptytorch.image_proc as ip
 from ptytorch.utils import to_tensor
 
 
-class Variable:
+class Variable(Module):
     
     name = None
     optimizable: bool = True
-    tensor: Optional[Tensor] = None
     optimizer = None
     
     def __init__(self, 
@@ -22,7 +22,9 @@ class Variable:
                  name: Optional[str] = None, 
                  optimizable: bool = True,
                  optimizer_class: Optional[Type[torch.optim.Optimizer]] = None,
-                 optimizer_params: Optional[dict] = None) -> None:
+                 optimizer_params: Optional[dict] = None,
+                 *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
         assert shape is not None or data is not None
         self.optimizable = optimizable
         self.name = name
@@ -31,10 +33,15 @@ class Variable:
         self.optimizer = None
         
         if shape is not None:
-            self.tensor = torch.zeros(shape).requires_grad_(optimizable)
+            tensor = torch.zeros(shape).requires_grad_(optimizable)
         else:
-            self.tensor = to_tensor(data).requires_grad_(optimizable)
-        self.shape = self.tensor.shape
+            tensor = to_tensor(data).requires_grad_(optimizable)
+        self.shape = tensor.shape
+        
+        # Register the tensor as a parameter. In subclasses, do the same for any
+        # additional differentiable variables. If you have a buffer that does not
+        # need gradients, use register_buffer instead.
+        self.register_parameter('tensor', Parameter(tensor))
         
         self.build_optimizer()
             
@@ -47,6 +54,29 @@ class Variable:
     def set_optimizable(self, optimizable):
         self.optimizable = optimizable
         self.tensor.requires_grad_(optimizable)
+        
+    def get_tensor(self, name):
+        """Get a member tensor in this object.
+        
+        It is necessary to use this method to access memebers when 
+        # (1) the forward model is wrapped in DataParallel,
+        # (2) multiple deivces are used,
+        # (3) the model has complex parameters. 
+        # DataParallel adds an additional dimension at the end of each registered 
+        # complex parameter (not an issue for real parameters).
+        This method selects the right index along that dimension by checking
+        the device ID. 
+        """
+        var = getattr(self, name)
+        # If the current shape has one more dimension than the original shape,
+        # it means that the DataParallel wrapper has added an additional
+        # dimension. Select the right index from the last dimension.
+        if len(var.shape) > len(self.shape):
+            dev_id = var.device.index
+            if dev_id is None:
+                raise RuntimeError("Expecting multi-GPU, but unable to find device ID.")
+            var = var[..., dev_id]
+        return var
     
     
 class Object(Variable):
@@ -56,7 +86,9 @@ class Object(Variable):
     def __init__(self, *args, pixel_size_m: float = 1.0, name='object', **kwargs):
         super().__init__(*args, name=name, **kwargs)
         self.pixel_size_m = pixel_size_m
-        self.center_pixel = torch.tensor(self.shape, device=torch.get_default_device()) / 2.0
+        center_pixel = torch.tensor(self.shape, device=torch.get_default_device()) / 2.0
+        
+        self.register_buffer('center_pixel', center_pixel)
 
     def extract_patches(self, positions, patch_shape, *args, **kwargs):
         raise NotImplementedError
@@ -76,7 +108,8 @@ class Object2D(Object):
         # Positions are provided with the origin in the center of the object support. 
         # We shift the positions so that the origin is in the upper left corner.
         positions = positions + self.center_pixel
-        patches = ip.extract_patches_fourier_shift(self.tensor, positions, patch_shape)
+        tensor = self.get_tensor('tensor')
+        patches = ip.extract_patches_fourier_shift(tensor, positions, patch_shape)
         return patches
         
         
@@ -101,10 +134,11 @@ class Probe(Variable):
         return shifted_probe
 
     def get_mode(self, mode: int):
-        return self.tensor[mode]
+        tensor = self.get_tensor('tensor')
+        return tensor[mode]
     
     def get_spatial_shape(self):
-        return self.tensor.shape[-2:]
+        return self.shape[-2:]
 
 
 class ProbePositions(Variable):

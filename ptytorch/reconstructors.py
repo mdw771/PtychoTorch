@@ -64,7 +64,7 @@ class AutodiffReconstructor(Reconstructor):
                                      shuffle=True)
         
     def build_forward_model(self):
-        # self.forward_model = torch.nn.DataParallel(self.forward_model)
+        self.forward_model = torch.nn.DataParallel(self.forward_model)
         self.forward_model.to(torch.get_default_device())
         
     def run(self, *args, **kwargs):
@@ -87,5 +87,8 @@ class AutodiffReconstructor(Reconstructor):
             self.loss_tracker.print_latest()
 
     def step_all_optimizers(self):
-        for var in self.forward_model.optimizable_variables:
+        model = self.forward_model.module \
+            if isinstance(self.forward_model, torch.nn.DataParallel) \
+            else self.forward_model
+        for var in model.optimizable_variables:
             var.optimizer.step()

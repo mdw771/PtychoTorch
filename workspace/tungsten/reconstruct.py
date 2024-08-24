@@ -12,10 +12,6 @@ from ptytorch.reconstructors import AutodiffReconstructor
 from ptytorch.metrics import MSELossOfSqrt
 
 
-torch.set_default_device('cuda')
-torch.set_default_dtype(torch.float32)
-set_default_complex_dtype(torch.complex64)
-
 patterns = h5py.File('data/dp_250.hdf5', 'r')['dp'][...]
 
 f_meta = h5py.File('data/metadata_250_truePos.hdf5', 'r')
@@ -35,7 +31,7 @@ object = Object2D(
 )
 probe = Probe(
     data=probe,
-    optimizable=True,
+    optimizable=False,
     optimizer_class=torch.optim.Adam,
     optimizer_params={'lr': 1e-6}
 )
@@ -52,6 +48,10 @@ forward_model = Ptychography2DForwardModel(
     probe_positions=probe_positions
 )
 
+torch.set_default_device('cuda')
+torch.set_default_dtype(torch.float32)
+set_default_complex_dtype(torch.complex64)
+
 reconstructor = AutodiffReconstructor(
     dataset=dataset,
     forward_model=forward_model,
@@ -62,6 +62,9 @@ reconstructor = AutodiffReconstructor(
 reconstructor.build()
 reconstructor.run()
 
-recon = np.angle(reconstructor.forward_model.object.tensor.detach().cpu().numpy())
+model = reconstructor.forward_model
+if isinstance(model, torch.nn.DataParallel):
+    model = model.module
+recon = np.angle(model.object.tensor.detach().cpu().numpy())
 plt.imshow(recon)
 plt.show()
