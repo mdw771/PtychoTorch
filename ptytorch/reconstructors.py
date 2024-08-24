@@ -75,7 +75,7 @@ class AutodiffReconstructor(Reconstructor):
                                 
                 y_pred = self.forward_model(*input_data)
                 batch_loss = self.loss_function(y_pred, y_true)
-                
+
                 batch_loss.backward()
                 self.step_all_optimizers()
                 self.forward_model.zero_grad()
@@ -84,7 +84,7 @@ class AutodiffReconstructor(Reconstructor):
             epoch_loss = epoch_loss / len(self.dataloader)
             self.loss_tracker.update(epoch=i_epoch, loss=epoch_loss)
             self.loss_tracker.print_latest()
-            
+
     def step_all_optimizers(self):
         for var in self.forward_model.optimizable_variables:
             var.optimizer.step()

@@ -46,12 +46,12 @@ class Ptychography2DForwardModel(ForwardModel):
         :return: measured intensities (squared magnitudes).
         """
         y = 0.0
+        obj_patches = self.object.extract_patches(positions, self.probe.get_spatial_shape())
         for i_probe_mode in range(self.probe.n_modes):
-            obj_patches = self.object.extract_patches(positions, self.probe.get_spatial_shape())
             p = self.probe.get_mode(i_probe_mode)
             psi = obj_patches * p
             psi_far = torch.fft.fft2(psi)
-            psi_far = torch.fft.fftshift(psi_far)
+            psi_far = torch.fft.fftshift(psi_far, dim=(-2, -1))
             y = y + torch.abs(psi_far) ** 2
         return y
                 

@@ -45,8 +45,8 @@ probe = Probe(
 probe_positions = ProbePositions(
     data=positions_px,
     optimizable=False,
-    # optimizer_class=torch.optim.Adam,
-    # optimizer_params={'lr': 1e-3}
+    optimizer_class=torch.optim.Adam,
+    optimizer_params={'lr': 1e-3}
 )
 
 forward_model = Ptychography2DForwardModel(
@@ -60,7 +60,7 @@ reconstructor = AutodiffReconstructor(
     forward_model=forward_model,
     batch_size=96,
     loss_function=MSELossOfSqrt(),
-    n_epochs=64
+    n_epochs=128
 )
 reconstructor.build()
 reconstructor.run()
