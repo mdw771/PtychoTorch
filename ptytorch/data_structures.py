@@ -48,6 +48,14 @@ class ComplexTensor(Module):
     @property
     def shape(self) -> Tuple[int, ...]:
         return self.data.shape[:-1]
+    
+    def set_data(self, data: Union[Tensor, ndarray]):
+        requires_grad = self.data.requires_grad
+        data = to_tensor(data)
+        data = torch.stack([data.real, data.imag], dim=-1)
+        data = data.type(torch.get_default_dtype())
+        self.data = Parameter(data)
+        self.data.requires_grad_(requires_grad)
 
 
 class Variable(Module):
@@ -144,6 +152,9 @@ class Object(Variable):
 
     def extract_patches(self, positions, patch_shape, *args, **kwargs):
         raise NotImplementedError
+    
+    def place_patches(self, positions, patches, *args, **kwargs):
+        raise NotImplementedError
         
 
 class Object2D(Object):
@@ -162,6 +173,16 @@ class Object2D(Object):
         positions = positions + self.center_pixel
         patches = ip.extract_patches_fourier_shift(self.tensor.complex(), positions, patch_shape)
         return patches
+    
+    def place_patches(self, positions: Tensor, patches: Tensor, *args, **kwargs):
+        """Place patches into a 2D object.
+        
+        :param positions: a tensor of shape (N, 2) giving the center positions of the patches in pixels.
+        :param patches: (N, H, W) tensor ofimage patches.
+        """
+        positions = positions + self.center_pixel
+        image = ip.place_patches_fourier_shift(self.tensor.complex(), positions, patches)
+        self.tensor.set_data(image)
         
         
 class Probe(Variable):
