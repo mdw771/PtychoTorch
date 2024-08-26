@@ -62,9 +62,6 @@ reconstructor = AutodiffReconstructor(
 reconstructor.build()
 reconstructor.run()
 
-model = reconstructor.forward_model
-if isinstance(model, torch.nn.DataParallel):
-    model = model.module
-recon = np.angle(model.object.tensor.detach().cpu().numpy())
+recon = reconstructor.get_forward_model().object.tensor.phase().detach().cpu().numpy()
 plt.imshow(recon)
 plt.show()

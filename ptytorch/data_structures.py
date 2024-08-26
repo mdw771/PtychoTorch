@@ -7,7 +7,47 @@ import numpy as np
 from numpy import ndarray
 
 import ptytorch.image_proc as ip
-from ptytorch.utils import to_tensor
+from ptytorch.utils import to_tensor, get_default_complex_dtype
+
+
+class ComplexTensor(Module):
+    """
+    A module that stores the real and imaginary parts of a complex tensor
+    as real tensors. 
+    
+    The support of PyTorch DataParallel on complex parameters is flawed. To
+    avoid the issue, complex parameters are stored as two real tensors.
+    """
+    
+    def __init__(self, 
+                 data: Union[Tensor, ndarray], 
+                 requires_grad: bool = True, 
+                 *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        data = to_tensor(data)
+        data = torch.stack([data.real, data.imag], dim=-1).requires_grad_(requires_grad)
+        data = data.type(torch.get_default_dtype())
+        
+        self.register_parameter(name='data', param=Parameter(data))
+        
+    def mag(self) -> Tensor:
+        return torch.sqrt(self.data[..., 0] ** 2 + self.data[..., 1] ** 2)
+    
+    def phase(self) -> Tensor:
+        return torch.atan2(self.data[..., 1], self.data[..., 0])
+    
+    def real(self) -> Tensor:
+        return self.data[..., 0]
+    
+    def imag(self) -> Tensor:
+        return self.data[..., 1]
+    
+    def complex(self) -> Tensor:
+        return self.real() + 1j * self.imag()
+    
+    @property
+    def shape(self) -> Tuple[int, ...]:
+        return self.data.shape[:-1]
 
 
 class Variable(Module):
@@ -18,7 +58,8 @@ class Variable(Module):
     
     def __init__(self, 
                  shape: Optional[Tuple[int, ...]] = None, 
-                 data: Optional[Union[Tensor, ndarray]] = None, 
+                 data: Optional[Union[Tensor, ndarray]] = None,
+                 is_complex: bool = False,
                  name: Optional[str] = None, 
                  optimizable: bool = True,
                  optimizer_class: Optional[Type[torch.optim.Optimizer]] = None,
@@ -32,24 +73,35 @@ class Variable(Module):
         self.optimizer_params = {} if optimizer_params is None else optimizer_params
         self.optimizer = None
         
-        if shape is not None:
-            tensor = torch.zeros(shape).requires_grad_(optimizable)
+        if is_complex:
+            if data is not None:
+                self.tensor = ComplexTensor(data).requires_grad_(optimizable)
+            else:
+                self.tensor = ComplexTensor(torch.zeros(shape), requires_grad=optimizable)
         else:
-            tensor = to_tensor(data).requires_grad_(optimizable)
-        self.shape = tensor.shape
-        
-        # Register the tensor as a parameter. In subclasses, do the same for any
-        # additional differentiable variables. If you have a buffer that does not
-        # need gradients, use register_buffer instead.
-        self.register_parameter('tensor', Parameter(tensor))
-        
+            if data is not None:
+                tensor = to_tensor(data).requires_grad_(optimizable)
+            else:
+                tensor = torch.zeros(shape).requires_grad_(optimizable)
+            # Register the tensor as a parameter. In subclasses, do the same for any
+            # additional differentiable variables. If you have a buffer that does not
+            # need gradients, use register_buffer instead.
+            self.register_parameter('tensor', Parameter(tensor))
+                
         self.build_optimizer()
+        
+    @property
+    def shape(self) -> Tuple[int, ...]:
+        return self.tensor.shape
             
     def build_optimizer(self):
         if self.optimizable and self.optimizer_class is None:
             raise ValueError("optimizer_class must be specified if optimizable is True.")
         if self.optimizable:
-            self.optimizer = self.optimizer_class([self.tensor], **self.optimizer_params)
+            if isinstance(self.tensor, ComplexTensor):
+                self.optimizer = self.optimizer_class([self.tensor.data], **self.optimizer_params)
+            else:
+                self.optimizer = self.optimizer_class([self.tensor], **self.optimizer_params)
             
     def set_optimizable(self, optimizable):
         self.optimizable = optimizable
@@ -84,7 +136,7 @@ class Object(Variable):
     pixel_size_m: float = 1.0
     
     def __init__(self, *args, pixel_size_m: float = 1.0, name='object', **kwargs):
-        super().__init__(*args, name=name, **kwargs)
+        super().__init__(*args, name=name, is_complex=True, **kwargs)
         self.pixel_size_m = pixel_size_m
         center_pixel = torch.tensor(self.shape, device=torch.get_default_device()) / 2.0
         
@@ -108,8 +160,7 @@ class Object2D(Object):
         # Positions are provided with the origin in the center of the object support. 
         # We shift the positions so that the origin is in the upper left corner.
         positions = positions + self.center_pixel
-        tensor = self.get_tensor('tensor')
-        patches = ip.extract_patches_fourier_shift(tensor, positions, patch_shape)
+        patches = ip.extract_patches_fourier_shift(self.tensor.complex(), positions, patch_shape)
         return patches
         
         
@@ -118,7 +169,7 @@ class Probe(Variable):
     n_modes = 1
     
     def __init__(self, *args, name='probe', **kwargs):
-        super().__init__(*args, name=name, **kwargs)
+        super().__init__(*args, name=name, is_complex=True, **kwargs)
         self.n_modes = self.tensor.shape[0]
         
     def shift(self, shifts: Tensor):
@@ -128,14 +179,13 @@ class Probe(Variable):
             If a (N, 2)-shaped tensor is given, a batch of shifted probes are generated.
         """
         if shifts.ndim == 1:
-            shifted_probe = ip.fourier_shift(self.tensor[None, ...], shifts[None, :])[0]
+            shifted_probe = ip.fourier_shift(self.tensor.complex()[None, ...], shifts[None, :])[0]
         else:
-            shifted_probe = ip.fourier_shift(self.tensor[None, ...].repeat(shifts.shape[0], 1, 1), shifts)
+            shifted_probe = ip.fourier_shift(self.tensor.complex()[None, ...].repeat(shifts.shape[0], 1, 1), shifts)
         return shifted_probe
 
     def get_mode(self, mode: int):
-        tensor = self.get_tensor('tensor')
-        return tensor[mode]
+        return self.tensor.complex()[mode]
     
     def get_spatial_shape(self):
         return self.shape[-2:]
@@ -152,7 +202,7 @@ class ProbePositions(Variable):
         :param data: a tensor of shape (N, 2) giving the probe positions in pixels. 
             Input positions should be in row-major order, i.e., y-posiitons come first.
         """
-        super().__init__(*args, name=name, **kwargs)
+        super().__init__(*args, name=name, is_complex=False, **kwargs)
         self.pixel_size_m = pixel_size_m
         
     def get_positions_in_physical_unit(self, unit: str = 'm'):

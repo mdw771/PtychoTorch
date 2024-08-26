@@ -87,8 +87,11 @@ class AutodiffReconstructor(Reconstructor):
             self.loss_tracker.print_latest()
 
     def step_all_optimizers(self):
-        model = self.forward_model.module \
-            if isinstance(self.forward_model, torch.nn.DataParallel) \
-            else self.forward_model
-        for var in model.optimizable_variables:
+        for var in self.get_forward_model().optimizable_variables:
             var.optimizer.step()
+            
+    def get_forward_model(self) -> ForwardModel:
+        if isinstance(self.forward_model, torch.nn.DataParallel):
+            return self.forward_model.module
+        else:
+            return self.forward_model
