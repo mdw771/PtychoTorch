@@ -210,6 +210,9 @@ class Probe(Variable):
     
     def get_spatial_shape(self):
         return self.shape[-2:]
+    
+    def get_all_mode_intensity(self):
+        return torch.sum((self.tensor.complex().abs()) ** 2, dim=0)
 
 
 class ProbePositions(Variable):

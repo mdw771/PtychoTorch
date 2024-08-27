@@ -39,7 +39,7 @@ class Ptychography2DForwardModel(ForwardModel):
                 # self.register_parameter(name=var.name, param=torch.nn.Parameter(var.tensor))
                 self.optimizable_variables.append(var)
 
-    def forward(self, positions: Tensor) -> Tensor:
+    def forward(self, positions: Tensor, return_object_patches: bool = False) -> Tensor:
         """Run ptychographic forward simulation and calculate the measured intensities.
 
         :param patterns: A (N, H, W) tensor of diffraction patterns in the batch.
@@ -51,8 +51,19 @@ class Ptychography2DForwardModel(ForwardModel):
         for i_probe_mode in range(self.probe.n_modes):
             p = self.probe.get_mode(i_probe_mode)
             psi = obj_patches * p
-            psi_far = torch.fft.fft2(psi)
+            psi_far = torch.fft.fft2(psi, norm='ortho')
             psi_far = torch.fft.fftshift(psi_far, dim=(-2, -1))
             y = y + torch.abs(psi_far) ** 2
-        return y
-                
+            
+        # Revert the 1 / n factor due to batch-averaged loss
+        # TODO: theoretically the gradient should be multiplied by |p|^2 / max(|p|^2) to be
+        # equal to ePIE update function, but it doesn't seem to be the case. Need to investigate.
+        psi.register_hook(lambda grad: grad * float(obj_patches.shape[0]))
+        
+        returns = [y]
+        if return_object_patches:
+            returns.append(obj_patches)
+        if len(returns) == 1:
+            return returns[0]
+        else:
+            return returns

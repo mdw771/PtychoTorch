@@ -100,7 +100,7 @@ class AutodiffReconstructor(IterativeReconstructor):
             for batch_data in self.dataloader:
                 input_data = [x.to(torch.get_default_device()) for x in batch_data[:-1]]
                 y_true = batch_data[-1].to(torch.get_default_device())
-                                
+                
                 y_pred = self.forward_model(*input_data)
                 batch_loss = self.loss_function(y_pred, y_true)
 
@@ -180,11 +180,12 @@ class EPIEReconstructor(IterativeReconstructor):
         psi_prime = psi_far / torch.abs(psi_far) * torch.sqrt(y_true + 1e-7)
         psi_prime = torch.fft.ifft2(torch.fft.ifftshift(psi_prime, dim=(-2, -1)))
         
+        # Update object
         delta_o = self.alpha * p.conj() / (torch.abs(p) ** 2).max()
         delta_o = delta_o * (psi_prime - psi)
-        
         self.get_forward_model().object.place_patches(positions, delta_o, op='add')
         
+        # Update probe
         delta_p = self.alpha * obj_patches.conj() / (torch.abs(obj_patches) ** 2).max(-1).values.max(-1).values.view(-1, 1, 1)
         delta_p = delta_p * (psi_prime - psi)
         delta_p = delta_p.mean(0)

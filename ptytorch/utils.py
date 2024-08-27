@@ -9,15 +9,15 @@ from numpy import ndarray
 default_complex_dtype = torch.complex64
 
 
-def get_suggested_object_size(positions_px, probe_shape):
-    h = np.ceil(positions_px[:, 0].max() - positions_px[:, 0].min()) + probe_shape[0]
-    w = np.ceil(positions_px[:, 1].max() - positions_px[:, 1].min()) + probe_shape[1]
+def get_suggested_object_size(positions_px, probe_shape, extra=0):
+    h = np.ceil(positions_px[:, 0].max() - positions_px[:, 0].min()) + probe_shape[0] + extra
+    w = np.ceil(positions_px[:, 1].max() - positions_px[:, 1].min()) + probe_shape[1] + extra
     return (int(h), int(w))
 
 
 def rescale_probe(probe: ndarray, patterns: ndarray):
     i_data = np.sum(np.mean(patterns, axis=0))
-    i_probe = np.sum(np.array([np.abs(np.fft.fft2(p)) ** 2 for p in probe]))
+    i_probe = np.sum(np.array([np.abs(np.fft.fft2(p, norm='ortho')) ** 2 for p in probe]))
     factor = i_data / i_probe
     probe = probe * np.sqrt(factor)
     return probe
