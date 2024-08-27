@@ -105,6 +105,7 @@ class AutodiffReconstructor(IterativeReconstructor):
                 batch_loss = self.loss_function(y_pred, y_true)
 
                 batch_loss.backward()
+                self.get_forward_model().post_differentiation_hook(*input_data, y_true)
                 self.step_all_optimizers()
                 self.forward_model.zero_grad()
                 
@@ -166,7 +167,9 @@ class EPIEReconstructor(IterativeReconstructor):
             self.loss_tracker.print_latest()
         
     def update_step(self, positions, y_true) -> float:
-        # single mode only
+        assert self.get_forward_model().probe.n_modes == 1, \
+            "This ePIE implementation only works with a single probe mode."
+            
         y = 0.0
         obj_patches = self.get_forward_model().object.extract_patches(
             positions, self.get_forward_model().probe.get_spatial_shape()

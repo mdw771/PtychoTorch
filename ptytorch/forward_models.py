@@ -17,6 +17,9 @@ class ForwardModel(torch.nn.Module):
     def forward(self, *args, **kwargs):
         raise NotImplementedError
     
+    def post_differentiation_hook(self, *args, **kwargs):
+        pass
+    
     
 class Ptychography2DForwardModel(ForwardModel):
     
@@ -30,7 +33,7 @@ class Ptychography2DForwardModel(ForwardModel):
         self.object = object
         self.probe = probe
         self.probe_positions = probe_positions
-        
+                
         self.register_optimizable_parameters()
         
     def register_optimizable_parameters(self):
@@ -54,12 +57,7 @@ class Ptychography2DForwardModel(ForwardModel):
             psi_far = torch.fft.fft2(psi, norm='ortho')
             psi_far = torch.fft.fftshift(psi_far, dim=(-2, -1))
             y = y + torch.abs(psi_far) ** 2
-            
-        # Revert the 1 / n factor due to batch-averaged loss
-        # TODO: theoretically the gradient should be multiplied by |p|^2 / max(|p|^2) to be
-        # equal to ePIE update function, but it doesn't seem to be the case. Need to investigate.
-        psi.register_hook(lambda grad: grad * float(obj_patches.shape[0]))
-        
+                    
         returns = [y]
         if return_object_patches:
             returns.append(obj_patches)
@@ -67,3 +65,47 @@ class Ptychography2DForwardModel(ForwardModel):
             return returns[0]
         else:
             return returns
+        
+    def post_differentiation_hook(self, *data_and_label, **kwargs):
+        patterns = data_and_label[-1]
+        self.scale_gradients(patterns)
+    
+    def scale_gradients(self, patterns):
+        """
+        Scale the gradients of object and probe so that they are identical to the
+        update functions of ePIE. 
+        
+        For object, the ePIE update function is
+        
+            o = o + alpha * p.conj() / (abs(p) ** 2).max() * (psi_prime - psi)
+            
+        while the gradient given by AD when using MSELoss(reduction="mean") is 
+        
+            -(1 / (batch_size * h * w)) * alpha * p.conj() * (psi_prime - psi)
+            
+        To scale the AD gradient to match ePIE, we should
+        (1) multiply it by batch_size * h * w;
+        (2) divide it by (abs(p) ** 2).max() to make up the ePIE scaling factor.
+        
+        For probe, the ePIE update function is
+        
+            p = p + alpha * mean(o.conj() / (abs(o) ** 2).max() * (psi_prime - psi), axis=0)
+            
+        while the gradient given by AD when using MSELoss(reduction="mean") is 
+        
+            -(1 / (batch_size * h * w)) * alpha * sum(o.conj() * (psi_prime - psi), axis=0)
+            
+        To scale the AD gradient to match ePIE, we should
+        (1) multiply it by batch_size * h * w;
+        (2) divide it by (abs(o) ** 2).max() to make up the ePIE scaling factor 
+            (but we can assume this is 1.0);
+        (3) divide it by batch_size to make up the mean over the batch dimension.
+        """
+        # Directly modify the gradients here. Tensor.register_hook has memory leak issue.
+        self.object.tensor.data.grad = \
+            self.object.tensor.data.grad / self.probe.get_all_mode_intensity().max() \
+                * patterns.numel()
+        # Assuming (obj_patches.abs() ** 2).max() == 1.0
+        self.probe.tensor.data.grad = \
+            self.probe.tensor.data.grad * (patterns.numel() / len(patterns))
+        

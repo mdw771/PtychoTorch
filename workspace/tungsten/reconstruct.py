@@ -20,10 +20,6 @@ patterns = h5py.File('data/dp_250.hdf5', 'r')['dp'][...]
 f_meta = h5py.File('data/metadata_250_truePos.hdf5', 'r')
 probe = f_meta['probe'][...]
 
-#####
-# probe = probe[0:1]
-#####
-
 probe = rescale_probe(probe, patterns)
 positions = np.stack([f_meta['probe_position_y_m'][...], f_meta['probe_position_x_m'][...]], axis=1)
 pixel_size_m = 8e-9
@@ -42,7 +38,7 @@ probe = Probe(
     data=probe,
     optimizable=True,
     optimizer_class=torch.optim.SGD,
-    optimizer_params={'lr': 1e0}
+    optimizer_params={'lr': 1e-1}
 )
 probe_positions = ProbePositions(
     data=positions_px,
