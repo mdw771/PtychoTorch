@@ -18,7 +18,10 @@ dependencies = [
     "tqdm",
     "scikit-learn",
     "scikit-image",
-    "torch"
+    "torch==2.0",
+    "pandas",
+    "h5py",
+    "tqdm"
 ]
 version = "0.0.1"
 
