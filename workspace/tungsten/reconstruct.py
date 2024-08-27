@@ -20,16 +20,15 @@ torch.set_default_dtype(torch.float32)
 set_default_complex_dtype(torch.complex64)
 
 patterns = h5py.File('data/dp_250.hdf5', 'r')['dp'][...]
+dataset = PtychographyDataset(patterns)
 
-f_meta = h5py.File('data/metadata_250_truePos.hdf5', 'r')
+f_meta = h5py.File('data/metadata_250_nominalPos.hdf5', 'r')
 probe = f_meta['probe'][...]
 
 probe = rescale_probe(probe, patterns)
 positions = np.stack([f_meta['probe_position_y_m'][...], f_meta['probe_position_x_m'][...]], axis=1)
 pixel_size_m = 8e-9
-
 positions_px = positions / pixel_size_m
-dataset = PtychographyDataset(patterns, positions_px)
 
 object = Object2D(
     data=torch.ones(get_suggested_object_size(positions_px, probe.shape[-2:], extra=100), dtype=get_default_complex_dtype()), 
@@ -48,9 +47,9 @@ probe = Probe(
 
 probe_positions = ProbePositions(
     data=positions_px,
-    optimizable=False,
+    optimizable=True,
     optimizer_class=torch.optim.Adam,
-    optimizer_params={'lr': 1e-3}
+    optimizer_params={'lr': 1e-1}
 )
 
 forward_model = Ptychography2DForwardModel(
@@ -84,3 +83,14 @@ timestamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
 plt.savefig('outputs/recon_{}.png'.format(timestamp))
 tifffile.imwrite('outputs/recon_phase_{}.tif'.format(timestamp), np.angle(recon))
 tifffile.imwrite('outputs/recon_mag_{}.tif'.format(timestamp), np.abs(recon))
+
+pos = reconstructor.get_forward_model().probe_positions.tensor.detach().cpu().numpy()
+f_meta = h5py.File('data/metadata_250_truePos.hdf5', 'r')
+positions = np.stack([f_meta['probe_position_y_m'][...], f_meta['probe_position_x_m'][...]], axis=1)
+pos_true = positions / pixel_size_m
+plt.figure()
+plt.plot(pos[:, 1], pos[:, 0], marker='.', label='corrected')
+plt.plot(pos_true[:, 1], pos_true[:, 0], marker='.', label='true')
+plt.legend()
+plt.show()
+

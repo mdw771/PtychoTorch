@@ -100,6 +100,7 @@ class AutodiffReconstructor(IterativeReconstructor):
                 
                 y_pred = self.forward_model(*input_data)
                 batch_loss = self.loss_function(y_pred, y_true)
+                batch_loss = self.loss_function(y_pred, y_true)
 
                 batch_loss.backward()
                 self.get_forward_model().post_differentiation_hook(*input_data, y_true)

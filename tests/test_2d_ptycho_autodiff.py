@@ -26,16 +26,15 @@ def test_2d_ptycho_autodiff(generate_gold=False, debug=False):
     set_default_complex_dtype(torch.complex64)
     
     patterns = h5py.File('data/2d_ptycho/dp_250.hdf5', 'r')['dp'][...]
+    dataset = PtychographyDataset(patterns)
 
     f_meta = h5py.File('data/2d_ptycho/metadata_250_truePos.hdf5', 'r')
     probe = f_meta['probe'][...]
-
     probe = rescale_probe(probe, patterns)
+    
     positions = np.stack([f_meta['probe_position_y_m'][...], f_meta['probe_position_x_m'][...]], axis=1)
     pixel_size_m = 8e-9
-
     positions_px = positions / pixel_size_m
-    dataset = PtychographyDataset(patterns, positions_px)
     
     object = Object2D(
         data=torch.ones(get_suggested_object_size(positions_px, probe.shape[-2:], extra=100), dtype=get_default_complex_dtype()), 

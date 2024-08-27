@@ -24,7 +24,7 @@ def rescale_probe(probe: ndarray, patterns: ndarray):
 
 
 def to_tensor(data: Union[ndarray, Tensor], device=None, dtype=None) -> Tensor:
-    if isinstance(data, np.ndarray):
+    if isinstance(data, (np.ndarray, list, tuple)):
         data = torch.tensor(data)
             
     if device is None:

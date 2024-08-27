@@ -42,13 +42,14 @@ class Ptychography2DForwardModel(ForwardModel):
                 # self.register_parameter(name=var.name, param=torch.nn.Parameter(var.tensor))
                 self.optimizable_variables.append(var)
 
-    def forward(self, positions: Tensor, return_object_patches: bool = False) -> Tensor:
+    def forward(self, indices: Tensor, return_object_patches: bool = False) -> Tensor:
         """Run ptychographic forward simulation and calculate the measured intensities.
 
-        :param patterns: A (N, H, W) tensor of diffraction patterns in the batch.
+        :param indices: A (N,) tensor of diffraction pattern indices in the batch.
         :param positions: A (N, 2) tensor of probe positions in pixels.
         :return: measured intensities (squared magnitudes).
         """
+        positions = self.probe_positions.tensor[indices]
         y = 0.0
         obj_patches = self.object.extract_patches(positions, self.probe.get_spatial_shape())
         for i_probe_mode in range(self.probe.n_modes):
