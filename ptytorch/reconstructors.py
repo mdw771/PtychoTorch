@@ -91,8 +91,9 @@ class AutodiffReconstructor(IterativeReconstructor):
         self.build_forward_model()
         
     def build_forward_model(self):
-        self.forward_model = torch.nn.DataParallel(self.forward_model)
-        self.forward_model.to(torch.get_default_device())
+        if not torch.get_default_device().type == 'cpu':
+            self.forward_model = torch.nn.DataParallel(self.forward_model)
+            self.forward_model.to(torch.get_default_device())
         
     def run(self, *args, **kwargs):
         for i_epoch in tqdm.trange(self.n_epochs):

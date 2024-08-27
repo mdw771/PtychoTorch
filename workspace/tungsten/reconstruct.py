@@ -15,6 +15,10 @@ from ptytorch.reconstructors import *
 from ptytorch.metrics import MSELossOfSqrt
 
 
+torch.set_default_device('cpu')
+torch.set_default_dtype(torch.float32)
+set_default_complex_dtype(torch.complex64)
+
 patterns = h5py.File('data/dp_250.hdf5', 'r')['dp'][...]
 
 f_meta = h5py.File('data/metadata_250_truePos.hdf5', 'r')
@@ -26,6 +30,7 @@ pixel_size_m = 8e-9
 
 positions_px = positions / pixel_size_m
 dataset = PtychographyDataset(patterns, positions_px)
+
 object = Object2D(
     data=torch.ones(get_suggested_object_size(positions_px, probe.shape[-2:], extra=100), dtype=get_default_complex_dtype()), 
     pixel_size_m=pixel_size_m,
@@ -40,6 +45,7 @@ probe = Probe(
     optimizer_class=torch.optim.SGD,
     optimizer_params={'lr': 1e-1}
 )
+
 probe_positions = ProbePositions(
     data=positions_px,
     optimizable=False,
@@ -53,7 +59,7 @@ forward_model = Ptychography2DForwardModel(
     probe_positions=probe_positions
 )
 
-torch.set_default_device('cuda')
+torch.set_default_device('cpu')
 torch.set_default_dtype(torch.float32)
 set_default_complex_dtype(torch.complex64)
 
