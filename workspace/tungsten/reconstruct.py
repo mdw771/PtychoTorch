@@ -15,7 +15,7 @@ from ptytorch.reconstructors import *
 from ptytorch.metrics import MSELossOfSqrt
 
 
-torch.set_default_device('cpu')
+torch.set_default_device('cuda')
 torch.set_default_dtype(torch.float32)
 set_default_complex_dtype(torch.complex64)
 
@@ -58,10 +58,6 @@ forward_model = Ptychography2DForwardModel(
     probe=probe,
     probe_positions=probe_positions
 )
-
-torch.set_default_device('cpu')
-torch.set_default_dtype(torch.float32)
-set_default_complex_dtype(torch.complex64)
 
 reconstructor = AutodiffReconstructor(
     dataset=dataset,
