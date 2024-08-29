@@ -1,4 +1,5 @@
 from typing import Optional, Union, Tuple, Type
+import dataclasses
 
 import torch
 from torch import Tensor
@@ -231,4 +232,36 @@ class ProbePositions(Variable):
         
     def get_positions_in_physical_unit(self, unit: str = 'm'):
         return self.tensor * self.pixel_size_m * self.conversion_factor_dict[unit]
+
+
+
+@dataclasses.dataclass
+class VariableGroup:
+
+    def get_all_variables(self) -> list[Variable]:
+        return list(self.__dict__.values())
+
+    def get_optimizable_variables(self) -> list[Variable]:
+        ovs = []
+        for var in self.get_all_variables():
+            if var.optimizable:
+                ovs.append(var)
+        return ovs
+
+
+@dataclasses.dataclass
+class PtychographyVariableGroup(VariableGroup):
+    
+    object: Object
+
+    probe: Probe
+
+    probe_positions: ProbePositions
+
+
+@dataclasses.dataclass
+class Ptychography2DVariableGroup(PtychographyVariableGroup):
+
+    object: Object2D
+
     

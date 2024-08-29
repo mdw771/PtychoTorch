@@ -58,15 +58,10 @@ def test_2d_ptycho_autodiff(generate_gold=False, debug=False):
         optimizer_params={'lr': 1e-3}
     )
 
-    forward_model = Ptychography2DForwardModel(
-        object=object,
-        probe=probe,
-        probe_positions=probe_positions
-    )
-
     reconstructor = AutodiffReconstructor(
+        variable_group=Ptychography2DVariableGroup(object=object, probe=probe, probe_positions=probe_positions),
         dataset=dataset,
-        forward_model=forward_model,
+        forward_model_class=Ptychography2DForwardModel,
         batch_size=96,
         loss_function=MSELossOfSqrt(),
         n_epochs=32
@@ -74,7 +69,7 @@ def test_2d_ptycho_autodiff(generate_gold=False, debug=False):
     reconstructor.build()
     reconstructor.run()
 
-    recon = reconstructor.get_forward_model().object.tensor.complex().detach().cpu().numpy()
+    recon = reconstructor.variable_group.object.tensor.complex().detach().cpu().numpy()
     
     if generate_gold:
         np.save(os.path.join(gold_dir, 'recon.npy'), recon)

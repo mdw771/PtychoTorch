@@ -2,17 +2,23 @@ import torch
 from torch import Tensor
 from torch.nn import ModuleList
 
-from ptytorch.data_structures import Variable, Object2D, Probe, ProbePositions
+from ptytorch.data_structures import (Variable, VariableGroup, Ptychography2DVariableGroup)
 
 
 class ForwardModel(torch.nn.Module):
     
-    def __init__(self):
+    def __init__(self, variable_group: VariableGroup, *args, **kwargs) -> None:
         super().__init__()
+        
+        assert isinstance(variable_group, VariableGroup)
+        
+        self.variable_group = variable_group
         self.optimizable_variables: ModuleList[Variable] = ModuleList()
         
     def register_optimizable_parameters(self):
-        raise NotImplementedError
+        for var in self.variable_group.__dict__.values():
+            if var.optimizable:
+                self.optimizable_variables.append(var)
 
     def forward(self, *args, **kwargs):
         raise NotImplementedError
@@ -25,22 +31,12 @@ class Ptychography2DForwardModel(ForwardModel):
     
     def __init__(
             self, 
-            object: Object2D, 
-            probe: Probe, 
-            probe_positions: ProbePositions, 
+            variable_group: Ptychography2DVariableGroup,
             *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        self.object = object
-        self.probe = probe
-        self.probe_positions = probe_positions
-                
-        self.register_optimizable_parameters()
-        
-    def register_optimizable_parameters(self):
-        for var in [self.object, self.probe, self.probe_positions]:
-            if var.optimizable:
-                # self.register_parameter(name=var.name, param=torch.nn.Parameter(var.tensor))
-                self.optimizable_variables.append(var)
+        super().__init__(variable_group, *args, **kwargs)
+        self.object = variable_group.object
+        self.probe = variable_group.probe
+        self.probe_positions = variable_group.probe_positions
 
     def forward(self, indices: Tensor, return_object_patches: bool = False) -> Tensor:
         """Run ptychographic forward simulation and calculate the measured intensities.

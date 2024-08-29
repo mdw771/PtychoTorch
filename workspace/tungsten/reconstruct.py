@@ -52,30 +52,24 @@ probe_positions = ProbePositions(
     optimizer_params={'lr': 1e-1}
 )
 
-forward_model = Ptychography2DForwardModel(
-    object=object,
-    probe=probe,
-    probe_positions=probe_positions
-)
-
 reconstructor = AutodiffReconstructor(
+    variable_group=Ptychography2DVariableGroup(object=object, probe=probe, probe_positions=probe_positions),
     dataset=dataset,
-    forward_model=forward_model,
+    forward_model_class=Ptychography2DForwardModel,
     batch_size=96,
     loss_function=MSELossOfSqrt(),
     n_epochs=64
 )
 # reconstructor = EPIEReconstructor(
+#     variable_group=Ptychography2DVariableGroup(object=object, probe=probe, probe_positions=probe_positions),
 #     dataset=dataset,
-#     forward_model=forward_model,
 #     batch_size=96,
 #     n_epochs=64,
-#     alpha=1e-1
 # )
 reconstructor.build()
 reconstructor.run()
 
-recon = reconstructor.get_forward_model().object.tensor.complex().detach().cpu().numpy()
+recon = reconstructor.variable_group.object.tensor.complex().detach().cpu().numpy()
 fig, ax = plt.subplots(1, 2)
 ax[0].imshow(np.angle(recon)); ax[0].set_title('Phase')
 ax[1].imshow(np.abs(recon)); ax[1].set_title('Magnitude')
@@ -84,7 +78,7 @@ plt.savefig('outputs/recon_{}.png'.format(timestamp))
 tifffile.imwrite('outputs/recon_phase_{}.tif'.format(timestamp), np.angle(recon))
 tifffile.imwrite('outputs/recon_mag_{}.tif'.format(timestamp), np.abs(recon))
 
-pos = reconstructor.get_forward_model().probe_positions.tensor.detach().cpu().numpy()
+pos = reconstructor.variable_group.probe_positions.tensor.detach().cpu().numpy()
 f_meta = h5py.File('data/metadata_250_truePos.hdf5', 'r')
 positions = np.stack([f_meta['probe_position_y_m'][...], f_meta['probe_position_x_m'][...]], axis=1)
 pos_true = positions / pixel_size_m
