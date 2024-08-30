@@ -37,6 +37,10 @@ class Reconstructor:
     def build(self) -> None:
         pass
     
+    def get_config_dict(self) -> dict:
+        d = self.variable_group.get_config_dict()
+        return d
+    
     
 class IterativeReconstructor(Reconstructor):
     
@@ -66,6 +70,11 @@ class IterativeReconstructor(Reconstructor):
     
     def build_loss_tracker(self):
         self.loss_tracker = LossTracker()
+        
+    def get_config_dict(self) -> dict:
+        d = super().get_config_dict()
+        d.update({'batch_size': self.batch_size, 'n_epochs': self.n_epochs})
+        return d
 
 
 class AutodiffReconstructor(IterativeReconstructor):
@@ -139,6 +148,11 @@ class AutodiffReconstructor(IterativeReconstructor):
             return self.forward_model.module
         else:
             return self.forward_model
+        
+    def get_config_dict(self) -> dict:
+        d = super().get_config_dict()
+        d.update({'forward_model_class': str(self.forward_model_class)})
+        return d
 
 
 class AnalyticalIterativeReconstructor(IterativeReconstructor):

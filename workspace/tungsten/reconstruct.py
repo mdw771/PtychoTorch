@@ -1,4 +1,5 @@
 import datetime
+import json
 
 import torch
 import h5py
@@ -77,6 +78,7 @@ timestamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
 plt.savefig('outputs/recon_{}.png'.format(timestamp))
 tifffile.imwrite('outputs/recon_phase_{}.tif'.format(timestamp), np.angle(recon))
 tifffile.imwrite('outputs/recon_mag_{}.tif'.format(timestamp), np.abs(recon))
+json.dump(reconstructor.get_config_dict(), open('outputs/recon_{}.json'.format(timestamp), 'w'))
 
 pos = reconstructor.variable_group.probe_positions.tensor.detach().cpu().numpy()
 f_meta = h5py.File('data/metadata_250_truePos.hdf5', 'r')

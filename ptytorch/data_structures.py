@@ -139,6 +139,12 @@ class Variable(Module):
             var = var[..., dev_id]
         return var
     
+    def get_config_dict(self):
+        return {'name': self.name, 
+                'optimizer_class': str(self.optimizer_class), 
+                'optimizer_params': self.optimizer_params,
+                'optimizable': self.optimizable}
+    
     
 class Object(Variable):
     
@@ -247,6 +253,9 @@ class VariableGroup:
             if var.optimizable:
                 ovs.append(var)
         return ovs
+    
+    def get_config_dict(self):
+        return {var.name: var.get_config_dict() for var in self.get_all_variables()}
 
 
 @dataclasses.dataclass
