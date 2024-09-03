@@ -5,6 +5,8 @@ from torch import Tensor
 import numpy as np
 from numpy import ndarray
 
+from ptytorch.propagation import propagate_far_field
+
 
 default_complex_dtype = torch.complex64
 
@@ -16,8 +18,9 @@ def get_suggested_object_size(positions_px, probe_shape, extra=0):
 
 
 def rescale_probe(probe: ndarray, patterns: ndarray):
+    probe = torch.tensor(probe)
+    i_probe = (torch.abs(propagate_far_field(probe)) ** 2).sum()
     i_data = np.sum(np.mean(patterns, axis=0))
-    i_probe = np.sum(np.array([np.abs(np.fft.fft2(p, norm='ortho')) ** 2 for p in probe]))
     factor = i_data / i_probe
     probe = probe * np.sqrt(factor)
     return probe

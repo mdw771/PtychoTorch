@@ -3,6 +3,7 @@ from torch import Tensor
 from torch.nn import ModuleList
 
 from ptytorch.data_structures import (Variable, VariableGroup, Ptychography2DVariableGroup)
+import ptytorch.propagation as prop
 
 
 class ForwardModel(torch.nn.Module):
@@ -32,11 +33,33 @@ class Ptychography2DForwardModel(ForwardModel):
     def __init__(
             self, 
             variable_group: Ptychography2DVariableGroup,
+            retain_psi: bool = False,
             *args, **kwargs) -> None:
         super().__init__(variable_group, *args, **kwargs)
+        self.retain_psi = retain_psi
+        
         self.object = variable_group.object
         self.probe = variable_group.probe
         self.probe_positions = variable_group.probe_positions
+        self.psi = None
+        
+    def forward_real_space(self, obj_patches: Tensor) -> Tensor:
+        # Shape of psi is (n_patches, n_probe_modes, h, w)
+        self.psi = obj_patches[:, None, :, :] * self.probe.tensor.data
+        return self.psi
+    
+    def forward_far_field(self, psi: Tensor) -> Tensor:
+        """
+        Propagate exit waves to far field. 
+
+        :param psi: a (n_patches, n_probe_modes, h, w) tensor of exit waves.
+        :return: (n_patches, h, w) tensor of detected intensities.
+        """
+        psi_far = prop.propagate_far_field(psi)
+        y = torch.abs(psi_far) ** 2
+        # Sum along probe modes
+        y = y.sum(1)
+        return y
 
     def forward(self, indices: Tensor, return_object_patches: bool = False) -> Tensor:
         """Run ptychographic forward simulation and calculate the measured intensities.
@@ -46,14 +69,18 @@ class Ptychography2DForwardModel(ForwardModel):
         :return: measured intensities (squared magnitudes).
         """
         positions = self.probe_positions.tensor[indices]
-        y = 0.0
         obj_patches = self.object.extract_patches(positions, self.probe.get_spatial_shape())
-        for i_probe_mode in range(self.probe.n_modes):
-            p = self.probe.get_mode(i_probe_mode)
-            psi = obj_patches * p
-            psi_far = torch.fft.fft2(psi, norm='ortho')
-            psi_far = torch.fft.fftshift(psi_far, dim=(-2, -1))
-            y = y + torch.abs(psi_far) ** 2
+        
+        if self.retain_psi:
+            psi = self.forward_real_space(obj_patches)
+            y = self.forward_far_field(psi)
+        else:
+            y = 0.0
+            for i_probe_mode in range(self.probe.n_modes):
+                p = self.probe.get_mode(i_probe_mode)
+                psi = obj_patches * p
+                psi_far = prop.propagate_far_field(psi)
+                y = y + torch.abs(psi_far) ** 2
                     
         returns = [y]
         if return_object_patches:

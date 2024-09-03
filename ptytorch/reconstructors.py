@@ -7,6 +7,7 @@ import pandas as pd
 
 from ptytorch.forward_models import ForwardModel, Ptychography2DForwardModel
 from ptytorch.data_structures import VariableGroup, Ptychography2DVariableGroup
+import ptytorch.propagation as prop
 
 
 class LossTracker:
@@ -14,6 +15,7 @@ class LossTracker:
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.table = pd.DataFrame(columns=['epoch', 'loss'])
+        self.table['epoch'] = self.table['epoch'].astype(int)
 
     def update(self, epoch: int, loss: float) -> None:
         self.table.loc[len(self.table)] = [epoch, loss]
@@ -26,6 +28,9 @@ class LossTracker:
             int(self.table.iloc[-1].epoch), 
             self.table.iloc[-1].loss)
         )
+        
+    def to_csv(self, path: str) -> None:
+        self.table.to_csv(path, index=False)
 
 
 class Reconstructor:
@@ -151,7 +156,8 @@ class AutodiffReconstructor(IterativeReconstructor):
         
     def get_config_dict(self) -> dict:
         d = super().get_config_dict()
-        d.update({'forward_model_class': str(self.forward_model_class)})
+        d.update({'forward_model_class': str(self.forward_model_class),
+                  'loss_function': str(self.loss_function)})
         return d
 
 
@@ -190,6 +196,8 @@ class AnalyticalIterativeReconstructor(IterativeReconstructor):
             
         self.update_step_module = EncapsulatedUpdateStep()
         if not torch.get_default_device().type == 'cpu':
+            # TODO: use CUDA stream instead of DataParallel for non-AD reconstructor. 
+            # https://poe.com/s/NZUVScEEGLxBE5ZDmKc0
             self.update_step_module = torch.nn.DataParallel(self.update_step_module)
             self.update_step_module.to(torch.get_default_device())
         
@@ -278,12 +286,11 @@ class EPIEReconstructor(AnalyticalIterativeReconstructor):
         )
         p = probe.get_mode(0)
         psi = obj_patches * p
-        psi_far = torch.fft.fft2(psi, norm='ortho')
-        psi_far = torch.fft.fftshift(psi_far, dim=(-2, -1))
+        psi_far = prop.propagate_far_field(psi)
         y = y + torch.abs(psi_far) ** 2
         
         psi_prime = psi_far / torch.abs(psi_far) * torch.sqrt(y_true + 1e-7)
-        psi_prime = torch.fft.ifft2(torch.fft.ifftshift(psi_prime, dim=(-2, -1)), norm='ortho')
+        psi_prime = prop.back_propagate_far_field(psi_prime)
         
         delta_o = None
         if object_.optimizable:
