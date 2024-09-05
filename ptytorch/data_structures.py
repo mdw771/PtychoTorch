@@ -34,6 +34,9 @@ class ComplexTensor(Module):
     def mag(self) -> Tensor:
         return torch.sqrt(self.data[..., 0] ** 2 + self.data[..., 1] ** 2)
     
+    def magsq(self) -> Tensor:
+        return self.data[..., 0] ** 2 + self.data[..., 1] ** 2
+    
     def phase(self) -> Tensor:
         return torch.atan2(self.data[..., 1], self.data[..., 0])
     
@@ -81,6 +84,7 @@ class Variable(Module):
         self.optimizer_class = optimizer_class
         self.optimizer_params = {} if optimizer_params is None else optimizer_params
         self.optimizer = None
+        self.is_complex = is_complex
         
         if is_complex:
             if data is not None:
@@ -102,6 +106,13 @@ class Variable(Module):
     @property
     def shape(self) -> Tuple[int, ...]:
         return self.tensor.shape
+    
+    @property
+    def data(self) -> Tensor:
+        if self.is_complex:
+            return self.tensor.complex()
+        else:
+            return self.tensor
             
     def build_optimizer(self):
         if self.optimizable and self.optimizer_class is None:
@@ -144,6 +155,12 @@ class Variable(Module):
                 'optimizer_class': str(self.optimizer_class), 
                 'optimizer_params': self.optimizer_params,
                 'optimizable': self.optimizable}
+        
+    def set_data(self, data):
+        if isinstance(self.tensor, ComplexTensor):
+            self.tensor.set_data(data)
+        else:
+            self.tensor = to_tensor(data)
     
     
 class Object(Variable):
@@ -190,6 +207,18 @@ class Object2D(Object):
         positions = positions + self.center_pixel
         image = ip.place_patches_fourier_shift(self.tensor.complex(), positions, patches)
         self.tensor.set_data(image)
+        
+    def place_patches_on_empty_buffer(self, positions: Tensor, patches: Tensor, *args, **kwargs):
+        """Place patches into a zero array with the same shape as the object.
+        
+        :param positions: a tensor of shape (N, 2) giving the center positions of the patches in pixels.
+        :param patches: (N, H, W) tensor ofimage patches.
+        :return: a tensor with the same shape as the object with patches added onto it.
+        """
+        positions = positions + self.center_pixel
+        image = torch.zeros(self.shape, dtype=get_default_complex_dtype(), device=self.tensor.data.device)
+        image = ip.place_patches_fourier_shift(image, positions, patches, op='add')
+        return image
         
         
 class Probe(Variable):

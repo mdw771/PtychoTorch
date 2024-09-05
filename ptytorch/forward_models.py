@@ -4,6 +4,7 @@ from torch.nn import ModuleList
 
 from ptytorch.data_structures import (Variable, VariableGroup, Ptychography2DVariableGroup)
 import ptytorch.propagation as prop
+from ptytorch.metrics import MSELossOfSqrt
 
 
 class ForwardModel(torch.nn.Module):
@@ -33,20 +34,27 @@ class Ptychography2DForwardModel(ForwardModel):
     def __init__(
             self, 
             variable_group: Ptychography2DVariableGroup,
-            retain_psi: bool = False,
+            retain_intermediates: bool = False,
             *args, **kwargs) -> None:
         super().__init__(variable_group, *args, **kwargs)
-        self.retain_psi = retain_psi
+        self.retain_intermediates = retain_intermediates
         
         self.object = variable_group.object
         self.probe = variable_group.probe
         self.probe_positions = variable_group.probe_positions
-        self.psi = None
+        
+        # Intermediate variables. Only used if retain_intermediate is True.
+        self.intermediate_variables = {
+            'positions': None,
+            'obj_patches': None,
+            'psi': None,
+            'psi_far': None
+        }
         
     def forward_real_space(self, obj_patches: Tensor) -> Tensor:
         # Shape of psi is (n_patches, n_probe_modes, h, w)
-        self.psi = obj_patches[:, None, :, :] * self.probe.tensor.data
-        return self.psi
+        psi = obj_patches[:, None, :, :] * self.probe.tensor.complex()
+        return psi
     
     def forward_far_field(self, psi: Tensor) -> Tensor:
         """
@@ -56,10 +64,7 @@ class Ptychography2DForwardModel(ForwardModel):
         :return: (n_patches, h, w) tensor of detected intensities.
         """
         psi_far = prop.propagate_far_field(psi)
-        y = torch.abs(psi_far) ** 2
-        # Sum along probe modes
-        y = y.sum(1)
-        return y
+        return psi_far
 
     def forward(self, indices: Tensor, return_object_patches: bool = False) -> Tensor:
         """Run ptychographic forward simulation and calculate the measured intensities.
@@ -71,9 +76,20 @@ class Ptychography2DForwardModel(ForwardModel):
         positions = self.probe_positions.tensor[indices]
         obj_patches = self.object.extract_patches(positions, self.probe.get_spatial_shape())
         
-        if self.retain_psi:
+        if self.retain_intermediates:
+            self.intermediate_variables['positions'] = positions
+            self.intermediate_variables['obj_patches'] = obj_patches
             psi = self.forward_real_space(obj_patches)
-            y = self.forward_far_field(psi)
+            psi_far = self.forward_far_field(psi)
+            
+            self.intermediate_variables['psi'] = psi
+            self.intermediate_variables['psi_far'] = psi_far
+            self.intermediate_variables['psi_far'].requires_grad_(True)
+            self.intermediate_variables['psi_far'].retain_grad()
+            
+            y = torch.abs(self.intermediate_variables['psi_far']) ** 2
+            # Sum along probe modes
+            y = y.sum(1)
         else:
             y = 0.0
             for i_probe_mode in range(self.probe.n_modes):
@@ -135,4 +151,79 @@ class Ptychography2DForwardModel(ForwardModel):
             self.probe.tensor.data.grad = \
                 self.probe.tensor.data.grad * (patterns.numel() / len(patterns))
 
+
+class NoiseModel(torch.nn.Module):
+    def __init__(self, eps=1e-6) -> None:
+        super().__init__()
+        self.eps = eps
+        self.noise_statistics = None
+        
+    def nll(self, y_pred: Tensor, y_true: Tensor) -> Tensor:
+        """
+        Calculate the negative log-likelihood.
+        
+        :param y_true: _description_
+        :param y_pred: _description_
+        :raises NotImplementedError: _description_
+        :return: _description_
+        """
+        raise NotImplementedError
+    
+    def backward(self, *args, **kwargs):
+        raise NotImplementedError
+        
+class GaussianNoiseModel(NoiseModel):
+    def __init__(self, sigma: float = 0.5, eps: float = 1e-6) -> None:
+        super().__init__(eps=eps)
+        self.noise_statistics = 'gaussian'
+        self.sigma = sigma
+        self.loss_function = MSELossOfSqrt()
+        
+    def nll(self, y_pred: Tensor, y_true: Tensor) -> Tensor:
+        # This is averaged over all pixels, so it differs from Eq. 11a in Odstrcil (2018)
+        # by a factor of 1 / y_pred.numel().
+        l = self.loss_function(y_pred, y_true) / self.sigma ** 2 * 0.5
+        return l
+    
+    
+class PtychographyGaussianNoiseModel(GaussianNoiseModel):
+    def __init__(self, sigma: float = 0.5, eps: float = 1e-6) -> None:
+        super().__init__(sigma=sigma, eps=eps)
+    
+    def backward_to_psi_far(self, y_pred, y_true, psi_far):
+        """
+        Compute the gradient of the NLL with respect to far field wavefront.
+        """
+        # Shape of g:       (batch_size, h, w)
+        # Shape of psi_far: (batch_size, n_probe_modes, h, w)
+        g = (1 - torch.sqrt(y_true / (y_pred + self.eps) + self.eps)) # Eq. 12b
+        w = 1 / (2 * self.sigma) ** 2
+        g = 2 * w * g[:, None, :, :] * psi_far
+        return g
+        
+        
+class PoissonNoiseModel(NoiseModel):
+    def __init__(self, eps: float = 1e-6) -> None:
+        super().__init__(eps=eps)
+        self.noise_statistics = 'poisson'
+        self.loss_function = torch.nn.PoissonNLLLoss(log_input=False)
+
+    def nll(self, y_pred: Tensor, y_true: Tensor) -> Tensor:
+        # This is averaged over all pixels, so it differs from Eq. 11a in Odstrcil (2018)
+        # by a factor of 1 / y_pred.numel().
+        l = self.loss_function(y_pred, y_true)
+        return l
+    
+
+class PtychographyPoissonNoiseModel(PoissonNoiseModel):
+    def __init__(self, eps: float = 1e-6) -> None:
+        super().__init__(eps=eps)
+        
+    def backward_to_psi_far(self, y_pred: Tensor, y_true: Tensor, psi_far: Tensor):
+        """
+        Compute the gradient of the NLL with respect to far field wavefront.
+        """
+        g = 1 - y_true / y_pred  # Eq. 12b
+        g = g[:, None, :, :] * psi_far
+        return g
         
