@@ -1,6 +1,7 @@
 import datetime
 import json
 import logging
+from pathlib import Path
 
 import torch
 import h5py
@@ -29,7 +30,7 @@ dataset = PtychographyDataset(patterns)
 
 f_meta = h5py.File('data/metadata_250_truePos.hdf5', 'r')
 probe = f_meta['probe'][...]
-probe = probe[[0], :, :]
+# probe = probe[[0], :, :]
 
 probe = rescale_probe(probe, patterns)
 positions = np.stack([f_meta['probe_position_y_m'][...], f_meta['probe_position_x_m'][...]], axis=1)
@@ -43,6 +44,10 @@ target_shape = get_suggested_object_size(positions_px, probe.shape[-2:], extra=1
 initial_object = ndi.zoom(initial_object, (target_shape[0] / initial_object.shape[0], target_shape[1] / initial_object.shape[1]))
 initial_object = to_tensor(initial_object)
 
+###
+initial_object = torch.ones(target_shape, dtype=get_default_complex_dtype())
+###
+
 object = Object2D(
     data=initial_object, 
     pixel_size_m=pixel_size_m,
@@ -53,7 +58,7 @@ object = Object2D(
 
 probe = Probe(
     data=probe,
-    optimizable=False,
+    optimizable=True,
     optimizer_class=torch.optim.SGD,
     optimizer_params={'lr': 1e-1}
 )
@@ -69,7 +74,7 @@ reconstructor = LSQMLReconstructor(
     variable_group=Ptychography2DVariableGroup(object=object, probe=probe, probe_positions=probe_positions),
     dataset=dataset,
     batch_size=96,
-    n_epochs=8,
+    n_epochs=64,
     noise_model='gaussian',
 )
 reconstructor.build()
@@ -84,6 +89,7 @@ plt.savefig('outputs/recon_{}.png'.format(timestamp))
 tifffile.imwrite('outputs/recon_phase_{}.tif'.format(timestamp), np.angle(recon))
 tifffile.imwrite('outputs/recon_mag_{}.tif'.format(timestamp), np.abs(recon))
 json.dump(reconstructor.get_config_dict(), open('outputs/recon_{}.json'.format(timestamp), 'w'), separators=(', ', ': '), indent=4)
+reconstructor.loss_tracker.to_csv(Path('outputs') / 'recon_{}.csv'.format(timestamp))
 
 pos = reconstructor.variable_group.probe_positions.tensor.detach().cpu().numpy()
 f_meta = h5py.File('data/metadata_250_truePos.hdf5', 'r')

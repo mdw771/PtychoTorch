@@ -1,6 +1,7 @@
 import datetime
 import json
 import logging
+from pathlib import Path
 
 import torch
 import h5py
@@ -76,6 +77,7 @@ plt.savefig('outputs/recon_{}.png'.format(timestamp))
 tifffile.imwrite('outputs/recon_phase_{}.tif'.format(timestamp), np.angle(recon))
 tifffile.imwrite('outputs/recon_mag_{}.tif'.format(timestamp), np.abs(recon))
 json.dump(reconstructor.get_config_dict(), open('outputs/recon_{}.json'.format(timestamp), 'w'), separators=(', ', ': '), indent=4)
+reconstructor.loss_tracker.to_csv(Path('outputs') / 'recon_{}.csv'.format(timestamp))
 
 pos = reconstructor.variable_group.probe_positions.tensor.detach().cpu().numpy()
 f_meta = h5py.File('data/metadata_250_truePos.hdf5', 'r')

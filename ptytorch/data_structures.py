@@ -190,6 +190,7 @@ class Object2D(Object):
         """Extract patches from 2D object.
 
         :param positions: a tensor of shape (N, 2) giving the center positions of the patches in pixels.
+            The origin of the given positions are assumed to be `self.center_pixel`.
         :param patch_shape: a tuple giving the patch shape in pixels.
         """
         # Positions are provided with the origin in the center of the object support. 
@@ -202,6 +203,7 @@ class Object2D(Object):
         """Place patches into a 2D object.
         
         :param positions: a tensor of shape (N, 2) giving the center positions of the patches in pixels.
+            The origin of the given positions are assumed to be `self.center_pixel`.
         :param patches: (N, H, W) tensor ofimage patches.
         """
         positions = positions + self.center_pixel

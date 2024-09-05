@@ -13,6 +13,7 @@ def extract_patches_fourier_shift(
 
     :param image: the whole image.
     :param positions: a tensor of shape (N, 2) giving the center positions of the patches in pixels.
+        The origin of the given positions are assumed to be the TOP LEFT corner of the image.
     :param shape: a tuple giving the patch shape in pixels.
     """    
     # Floating point ranges over which interpolations should be done
@@ -57,6 +58,7 @@ def place_patches_fourier_shift(
     
     :param image: the whole image.
     :param positions: a tensor of shape (N, 2) giving the center positions of the patches in pixels.
+        The origin of the given positions are assumed to be the TOP LEFT corner of the image.
     :param patches: (N, H, W) tensor ofimage patches.
     """
     shape = patches.shape[-2:]

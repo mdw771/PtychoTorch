@@ -10,7 +10,7 @@ from ptytorch.data_structures import Ptychography2DVariableGroup
 from ptytorch.forward_models import Ptychography2DForwardModel, PtychographyGaussianNoiseModel, PtychographyPoissonNoiseModel
 from ptytorch.metrics import MSELossOfSqrt
 import ptytorch.propagation as prop
-from ptytorch.image_proc import place_patches_fourier_shift
+from ptytorch.image_proc import place_patches_fourier_shift, extract_patches_fourier_shift
 
 
 class LSQMLReconstructor(AnalyticalIterativeReconstructor):
@@ -93,18 +93,18 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
         self.update_object_and_probe(chi, obj_patches, positions)
             
     def update_object_and_probe(self, chi, obj_patches, positions, delta=1e-5, gamma=1e-5):
-        delta_p_i = self._calculate_probe_gradient(chi, obj_patches)  # Eq. 24a
-        delta_o_i = self._calculate_object_patch_gradient(chi)
+        delta_p_i = self._calculate_probe_update_direction(chi, obj_patches)  # Eq. 24a
+        delta_o_i = self._calculate_object_patch_update_direction(chi)
+        delta_p_hat = self._precondition_probe_update_direction(delta_p_i)  # Eq. 25a
+        delta_o_hat, delta_o_i = self._precondition_object_update_direction(delta_o_i, positions)
         alpha_o_i, alpha_p_i = self.calculate_object_and_probe_update_step_sizes(
             chi, obj_patches, delta_o_i, delta_p_i, gamma=gamma
         )
         
         if self.variable_group.probe.optimizable:
-            delta_p_hat = self._calculate_probe_update_direction(delta_p_i, delta=delta)  # Eq. 25a
             self._apply_probe_update(alpha_p_i, delta_p_hat, obj_patches)
-        
+            
         if self.variable_group.object.optimizable:
-            delta_o_hat = self._calculate_object_update_direction(delta_o_i, positions, delta=delta)
             self._apply_object_update(alpha_o_i, delta_o_hat, positions)
         
     def calculate_object_and_probe_update_step_sizes(self, chi, obj_patches, delta_o_i, delta_p_i, gamma=1e-5):
@@ -134,7 +134,7 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
         alpha_o_i = alpha_vec[:, 0]
         alpha_p_i = alpha_vec[:, 1]
         
-        alpha_o_i, alpha_p_i = self.adjust_object_and_probe_update_step_sizes(alpha_o_i, alpha_p_i)
+        alpha_o_i, alpha_p_i = self.adjust_object_and_probe_update_step_sizes(alpha_o_i, alpha_p_i, threshold_o=-1, threshold_p=-1)
         
         return alpha_o_i, alpha_p_i
     
@@ -159,15 +159,7 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
             alpha_p_i[...] = 1.0
         return  alpha_o_i, alpha_p_i
         
-        
-    def update_probe(self, chi, obj_patches, delta=1e-5, gamma=1e-5):
-        delta_p_i = self._calculate_probe_gradient(chi, obj_patches)  # Eq. 24a
-        alpha_p_i = self._calculate_probe_update_step_size(delta_p_i, chi, obj_patches, gamma=gamma)  # Eq. 23a
-        delta_p_hat = self._calculate_probe_update_direction(delta_p_i, delta=delta)  # Eq. 25a
-        logging.info('alpha_p_i: min={}, max={}'.format(alpha_p_i.min(), alpha_p_i.max()))
-        self._apply_probe_update(alpha_p_i, delta_p_hat, obj_patches)
-        
-    def _calculate_probe_gradient(self, chi, obj_patches):
+    def _calculate_probe_update_direction(self, chi, obj_patches):
         # Shape of chi:          (batch_size, n_probe_modes, h, w)
         # Shape of obj_patches:  (batch_size, h, w)
         # Shape of delta_p:      (batch_size, n_probe_modes, h, w)
@@ -187,12 +179,18 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
         alpha_p_i = alpha_p_i / (alpha_denom + gamma)  # Eq. 23a
         return alpha_p_i
         
-    def _calculate_probe_update_direction(self, delta_p, delta=1e-5):
+    def _precondition_probe_update_direction(self, delta_p):
+        """
+        Eq. 25a of Odstrcil, 2018.
+        """
         object_ = self.variable_group.object.tensor.complex()
         # Sum over batch dimension
         # Shape of delta_p_hat:  (n_probe_modes, h, w)
         delta_p_hat = torch.sum(delta_p, dim=0)  # Eq. 25a
-        delta_p_hat = delta_p_hat / ((object_.abs() ** 2).sum() + delta)
+        # PtychoShelves code simply takes the average. This is different from the paper
+        # which does delta_p_hat = delta_p_hat / ((object_.abs() ** 2).sum() + delta),
+        # but this seems to work better.
+        delta_p_hat = delta_p_hat / delta_p.shape[0]
         return delta_p_hat
     
     def _apply_probe_update(self, alpha_p_i, delta_p_hat, obj_patches, delta=1e-5):
@@ -211,15 +209,7 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
             self.variable_group.probe.tensor.complex() + update_vec
         )
     
-    def update_object(self, chi, positions, delta=1e-5, gamma=1e-5):
-        delta_o_i = self._calculate_object_patch_gradient(chi)
-        alpha_o_i = self._calculate_object_update_step_size(delta_o_i, chi, gamma=gamma)
-        delta_o_hat = self._calculate_object_update_direction(delta_o_i, positions, delta=delta)
-        self._apply_object_update(alpha_o_i, delta_o_hat, positions)
-        
-        logging.debug('alpha_o_i: min={}, max={}'.format(alpha_o_i.min(), alpha_o_i.max()))
-    
-    def _calculate_object_patch_gradient(self, chi):
+    def _calculate_object_patch_update_direction(self, chi):
         # Shape of probe:        (n_probe_modes, h, w)
         probe = self.variable_group.probe.tensor.complex()
         # Shape of chi:          (batch_size, n_probe_modes, h, w)
@@ -241,16 +231,37 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
         alpha_o_i = alpha_o_i / (alpha_denom + gamma)  # Eq. 23b
         return alpha_o_i
     
-    def _calculate_object_update_direction(self, delta_o_patches, positions, delta=1e-5):
+    def _precondition_object_update_direction(self, delta_o_patches, positions, alpha_mix=0.05):
+        """
+        Eq. 25b of Odstrcil, 2018.
+        """
+        positions_all = self.variable_group.probe_positions.tensor
         # Shape of probe:        (n_probe_modes, h, w)
         probe = self.variable_group.probe.tensor.complex()
-        # Shape of chi:          (batch_size, n_probe_modes, h, w)
-        # Shape delta_o_patches: (batch_size, h, w)
-        # Multiply and sum over probe mode dimension
-        delta_o_hat = self.variable_group.object.place_patches_on_empty_buffer(positions, delta_o_patches)  # Eq. 25b
+
+        # Stitch all delta O patches on the object buffer
         # Shape of delta_o_hat:  (h_whole, w_whole)
-        delta_o_hat = delta_o_hat / ((probe.abs() ** 2).sum() + delta)
-        return delta_o_hat
+        delta_o_hat = self.variable_group.object.place_patches_on_empty_buffer(positions, delta_o_patches)
+        
+        probe_int = (probe.abs() ** 2).sum(0, keepdim=True)
+        # Shape of probe_int:    (n_scan_points, h, w)
+        probe_int = probe_int.repeat(len(positions_all), 1, 1)
+        # Stitch probes of all positions on the object buffer
+        probe_sq_map = place_patches_fourier_shift(
+            image=torch.zeros_like(delta_o_hat).type(torch.get_default_dtype()), 
+            positions=positions_all + self.variable_group.object.center_pixel,
+            patches=probe_int,
+            op='add')
+        
+        delta_o_hat = delta_o_hat / torch.sqrt(
+            probe_sq_map ** 2 + probe_sq_map.max() ** 2)
+        
+        # Re-extract delta O patches
+        delta_o_patches = extract_patches_fourier_shift(
+            delta_o_hat, 
+            positions + self.variable_group.object.center_pixel, 
+            delta_o_patches.shape[-2:])
+        return delta_o_hat, delta_o_patches
     
     def _apply_object_update(self, alpha_o_i, delta_o_hat, positions, delta=1e-5):
         # Shape of alpha_o_i:    (batch_size,)
