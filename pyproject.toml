@@ -18,6 +18,7 @@ dependencies = [
     "tqdm",
     "scikit-learn",
     "scikit-image",
+    "torchvision",
     "torch>=2.3",
     "pandas",
     "h5py",
