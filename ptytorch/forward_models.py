@@ -126,10 +126,13 @@ class Ptychography2DForwardModel(ForwardModel):
         (3) divide it by batch_size to make up the mean over the batch dimension.
         """
         # Directly modify the gradients here. Tensor.register_hook has memory leak issue.
-        self.object.tensor.data.grad = \
-            self.object.tensor.data.grad / self.probe.get_all_mode_intensity().max() \
-                * patterns.numel()
+        if self.object.optimizable:
+            self.object.tensor.data.grad = \
+                self.object.tensor.data.grad / self.probe.get_all_mode_intensity().max() \
+                    * patterns.numel()
         # Assuming (obj_patches.abs() ** 2).max() == 1.0
-        self.probe.tensor.data.grad = \
-            self.probe.tensor.data.grad * (patterns.numel() / len(patterns))
+        if self.probe.optimizable:
+            self.probe.tensor.data.grad = \
+                self.probe.tensor.data.grad * (patterns.numel() / len(patterns))
+
         

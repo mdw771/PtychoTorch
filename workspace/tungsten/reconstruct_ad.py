@@ -1,5 +1,6 @@
 import datetime
 import json
+import logging
 
 import torch
 import h5py
@@ -11,10 +12,12 @@ from ptytorch.data_structures import *
 from ptytorch.io_handles import PtychographyDataset
 from ptytorch.forward_models import Ptychography2DForwardModel
 from ptytorch.utils import (get_suggested_object_size, set_default_complex_dtype, get_default_complex_dtype, 
-                            rescale_probe)
+                            rescale_probe, generate_initial_object)
 from ptytorch.reconstructors import *
 from ptytorch.metrics import MSELossOfSqrt
 
+
+logging.basicConfig(level=logging.INFO)
 
 torch.set_default_device('cuda')
 torch.set_default_dtype(torch.float32)
@@ -23,7 +26,7 @@ set_default_complex_dtype(torch.complex64)
 patterns = h5py.File('data/dp_250.hdf5', 'r')['dp'][...]
 dataset = PtychographyDataset(patterns)
 
-f_meta = h5py.File('data/metadata_250_nominalPos.hdf5', 'r')
+f_meta = h5py.File('data/metadata_250_truePos.hdf5', 'r')
 probe = f_meta['probe'][...]
 
 probe = rescale_probe(probe, patterns)
@@ -61,12 +64,6 @@ reconstructor = AutodiffReconstructor(
     loss_function=MSELossOfSqrt(),
     n_epochs=64
 )
-# reconstructor = EPIEReconstructor(
-#     variable_group=Ptychography2DVariableGroup(object=object, probe=probe, probe_positions=probe_positions),
-#     dataset=dataset,
-#     batch_size=96,
-#     n_epochs=64,
-# )
 reconstructor.build()
 reconstructor.run()
 
