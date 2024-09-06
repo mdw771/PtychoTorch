@@ -11,6 +11,7 @@ from ptytorch.forward_models import Ptychography2DForwardModel, PtychographyGaus
 from ptytorch.metrics import MSELossOfSqrt
 import ptytorch.propagation as prop
 from ptytorch.image_proc import place_patches_fourier_shift, extract_patches_fourier_shift
+from ptytorch.utils import chunked_processing
 
 
 class LSQMLReconstructor(AnalyticalIterativeReconstructor):
@@ -228,11 +229,15 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
         # Shape of probe_int:    (n_scan_points, h, w)
         probe_int = probe_int.repeat(len(positions_all), 1, 1)
         # Stitch probes of all positions on the object buffer
-        probe_sq_map = place_patches_fourier_shift(
-            image=torch.zeros_like(delta_o_hat).type(torch.get_default_dtype()), 
-            positions=positions_all + self.variable_group.object.center_pixel,
-            patches=probe_int,
-            op='add')
+        # TODO: allow setting chunk size externally
+        probe_sq_map = chunked_processing(
+            func=place_patches_fourier_shift,
+            common_kwargs={'op': 'add'},
+            chunkable_kwargs={'positions': positions_all + self.variable_group.object.center_pixel,
+                              'patches': probe_int},
+            iterated_kwargs={'image': torch.zeros_like(delta_o_hat).type(torch.get_default_dtype())},
+            chunk_size=64
+        )
         
         delta_o_hat = delta_o_hat / torch.sqrt(
             probe_sq_map ** 2 + probe_sq_map.max() ** 2)

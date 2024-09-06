@@ -1,4 +1,4 @@
-from typing import Union, Literal
+from typing import Union, Literal, Callable
 
 import torch
 from torch import Tensor
@@ -50,7 +50,6 @@ def generate_gaussian_random_image(shape: tuple[int, ...], loc: float = 0.9, sig
     return img
     
 
-
 def to_tensor(data: Union[ndarray, Tensor], device=None, dtype=None) -> Tensor:
     if isinstance(data, (np.ndarray, list, tuple)):
         data = torch.tensor(data)
@@ -84,3 +83,43 @@ def set_default_complex_dtype(dtype):
 def get_default_complex_dtype():
     return default_complex_dtype
 
+
+def chunked_processing(func: Callable, common_kwargs: dict, chunkable_kwargs: dict, iterated_kwargs: dict, 
+                       chunk_size: int = 96):
+    """
+    Breaks the data of a vectorized function into chunks and process chunks in sequence to
+    reduce peak memory usage. 
+
+    :param func: the callable to be executed.
+    :param common_kwargs: a dictionary of arguments that should stay constant across chunks.
+    :param chunkable_kwargs: a dictionary of arguments that should be chunked.
+    :param iterated_kwargs: a dictionary of arguments that should be returned by `func`, then
+        passed to `func` for the next chunk. The order of arguments should be the same as
+        the returns of `func`.
+    :return: the returns of `func` as if it is executed for the entire data.
+    """
+    full_batch_size = tuple(chunkable_kwargs.values())[0].shape[0]
+    for key, value in tuple(chunkable_kwargs.items())[1:]:
+        assert value.shape[0] == full_batch_size, \
+            'All common arguments must have the same batch size, but {} has shape {}.'.format(key, value.shape)
+    
+    chunks_of_chunkable_args = []
+    ind_st = 0
+    while ind_st < full_batch_size:
+        ind_end = min(ind_st + chunk_size, full_batch_size)
+        chunk = {key: value[ind_st:ind_end] for key, value in chunkable_kwargs.items()}
+        chunks_of_chunkable_args.append(chunk)
+        ind_st = ind_end
+    
+    for kwargs_chunk in chunks_of_chunkable_args:
+        ret = func(**common_kwargs, **kwargs_chunk, **iterated_kwargs)
+        if isinstance(ret, tuple):
+            for i, key in enumerate(iterated_kwargs.keys()):
+                iterated_kwargs[key] = ret[i]
+        else:
+            iterated_kwargs[tuple(iterated_kwargs.keys())[0]] = ret
+    if len(iterated_kwargs) == 1:
+        return tuple(iterated_kwargs.values())[0]
+    else:
+        return tuple(iterated_kwargs.values())
+    
