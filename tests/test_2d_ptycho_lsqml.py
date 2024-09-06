@@ -81,10 +81,14 @@ def test_2d_ptycho_lsqml(pytestconfig, generate_gold=False, debug=False, high_to
         np.save(os.path.join(gold_dir, 'recon.npy'), recon)
     else:
         recon_gold = np.load(os.path.join(gold_dir, 'recon.npy'))
-        print('gold:')
-        print(recon_gold[300:400, 300:400])
-        print('recon:')
-        print(recon[300:400, 300:400])
+        recon = recon[300:400, 300:400]
+        recon_gold = recon_gold[300:400, 300:400]
+        print(recon)
+        print(recon_gold)
+        diff = np.abs(recon - recon_gold)
+        amax = np.unravel_index(np.argmax(diff), diff.shape)
+        print('value of max diff in recon: ', recon[amax[0], amax[1]])
+        print('value of max diff in recon_gold: ', recon_gold[amax[0], amax[1]])
         if not high_tol:
             assert np.allclose(recon, recon_gold)
         else:
