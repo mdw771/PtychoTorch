@@ -5,7 +5,7 @@ import torch
 import tqdm
 from torch.utils.data import Dataset
 
-from ptytorch.reconstructors.base import AnalyticalIterativeReconstructor
+from ptytorch.reconstructors.base import AnalyticalIterativeReconstructor, LossTracker
 from ptytorch.data_structures import Ptychography2DVariableGroup
 from ptytorch.forward_models import Ptychography2DForwardModel, PtychographyGaussianNoiseModel, PtychographyPoissonNoiseModel
 from ptytorch.metrics import MSELossOfSqrt
@@ -30,6 +30,7 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
                  dataset: Dataset,
                  batch_size: int = 1,
                  n_epochs: int = 100,
+                 metric_function: Optional[torch.nn.Module] = None,
                  noise_model: Literal['gaussian', 'poisson'] = 'gaussian',
                  noise_model_params: Optional[dict] = None,
                  *args, **kwargs
@@ -39,6 +40,7 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
             dataset=dataset,
             batch_size=batch_size,
             n_epochs=n_epochs,
+            metric_function=metric_function,
             *args, **kwargs)
         self.forward_model = Ptychography2DForwardModel(variable_group, retain_intermediates=True)
         noise_model_params = noise_model_params if noise_model_params is not None else {}
@@ -47,6 +49,10 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
             'poisson': PtychographyPoissonNoiseModel
             }[noise_model](**noise_model_params)
         self.alpha_psi_far = 0.5
+        
+    def build_loss_tracker(self):
+        f = self.noise_model.nll if self.metric_function is None else self.metric_function
+        self.loss_tracker = LossTracker(metric_function=f)
         
     def get_psi_far_step_size(self, y_pred, y_true):
         if isinstance(self.noise_model, PtychographyGaussianNoiseModel):
@@ -134,31 +140,11 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
         alpha_o_i = alpha_vec[:, 0]
         alpha_p_i = alpha_vec[:, 1]
         
-        alpha_o_i, alpha_p_i = self.adjust_object_and_probe_update_step_sizes(alpha_o_i, alpha_p_i, threshold_o=-1, threshold_p=-1)
+        logging.debug('alpha_p_i: min={}, max={}'.format(alpha_p_i.min(), alpha_p_i.max()))
+        logging.debug('alpha_o_i: min={}, max={}'.format(alpha_o_i.min(), alpha_o_i.max()))
         
         return alpha_o_i, alpha_p_i
     
-    def adjust_object_and_probe_update_step_sizes(self, alpha_o_i, alpha_p_i, threshold_o=1e-8, threshold_p=1e-8):
-        alpha_p_max = alpha_p_i.max()
-        alpha_o_max = alpha_o_i.max()
-        
-        logging.debug('alpha_p_i: min={}, max={}'.format(alpha_p_i.min(), alpha_p_max))
-        logging.debug('alpha_o_i: min={}, max={}'.format(alpha_o_i.min(), alpha_o_max))
-        
-        if alpha_o_max < threshold_o or alpha_p_max < threshold_p:
-            logging.warning('Update step size of either object or probe is extremely small '
-                            '(alpha_p_max={}, alpha_o_max={}). This can be caused by bad '
-                            'initial guesses. For example, you would have alpha_p ~ 1 and alpha_o ~ 0 '
-                            'if the initial object is all ones.'.format(alpha_p_max, alpha_o_max))
-        if alpha_o_max < threshold_o:
-            # TODO: need to figure out a better way to set this
-            logging.info('alpha_o is too small. Setting alpha_o to 1e3.')
-            alpha_o_i[...] = 1e3
-        if alpha_p_max < threshold_p:
-            logging.info('alpha_p is too small. Setting alpha_p to 1.')
-            alpha_p_i[...] = 1.0
-        return  alpha_o_i, alpha_p_i
-        
     def _calculate_probe_update_direction(self, chi, obj_patches):
         # Shape of chi:          (batch_size, n_probe_modes, h, w)
         # Shape of obj_patches:  (batch_size, h, w)
@@ -183,8 +169,6 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
         """
         Eq. 25a of Odstrcil, 2018.
         """
-        object_ = self.variable_group.object.tensor.complex()
-        # Sum over batch dimension
         # Shape of delta_p_hat:  (n_probe_modes, h, w)
         delta_p_hat = torch.sum(delta_p, dim=0)  # Eq. 25a
         # PtychoShelves code simply takes the average. This is different from the paper
@@ -282,19 +266,16 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
         
     def run(self, *args, **kwargs):
         for i_epoch in tqdm.trange(self.n_epochs):
-            epoch_loss = 0.0
             for batch_data in self.dataloader:
                 input_data = [x.to(torch.get_default_device()) for x in batch_data[:-1]]
                 y_true = batch_data[-1].to(torch.get_default_device())
 
                 with torch.no_grad():
                     y_pred = self.forward_model(*input_data)
-                    batch_loss = self.noise_model.nll(y_pred, y_true)
                     
                     psi_opt = self.run_reciprocal_space_step(y_pred, y_true)
                     self.run_real_space_step(psi_opt)
                     
-                    epoch_loss = epoch_loss + batch_loss.item()
-            epoch_loss = epoch_loss / len(self.dataloader)
-            self.loss_tracker.update(epoch=i_epoch, loss=epoch_loss)
+                    self.loss_tracker.update_batch_loss_with_metric_function(y_pred, y_true)
+            self.loss_tracker.conclude_epoch(epoch=i_epoch)
             self.loss_tracker.print_latest()

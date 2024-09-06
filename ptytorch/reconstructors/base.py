@@ -1,3 +1,5 @@
+from typing import Optional
+
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader, Dataset
@@ -7,13 +9,52 @@ from ptytorch.data_structures import VariableGroup
 
 class LossTracker:
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, metric_function: Optional[torch.nn.Module] = None, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.table = pd.DataFrame(columns=['epoch', 'loss'])
         self.table['epoch'] = self.table['epoch'].astype(int)
+        self.metric_function = metric_function
+        self.epoch_loss = 0.0
+        self.accumulated_batch_size = 0
+        self.epoch = 0
 
-    def update(self, epoch: int, loss: float) -> None:
-        self.table.loc[len(self.table)] = [epoch, loss]
+    def conclude_epoch(self, epoch: Optional[int] = None) -> None:
+        self.epoch_loss = self.epoch_loss / self.accumulated_batch_size
+        if epoch is None:
+            epoch = self.epoch
+            self.epoch += 1
+        else:
+            self.epoch = epoch + 1
+        self.table.loc[len(self.table)] = [epoch, self.epoch_loss]
+        self.epoch_loss = 0.0
+        self.accumulated_batch_size = 0
+        
+    def update_batch_loss(self, 
+                          y_pred: Optional[torch.Tensor] = None, 
+                          y_true: Optional[torch.Tensor] = None, 
+                          loss: Optional[float] = None,
+                          batch_size: Optional[int] = None
+    ) -> None:
+        data_provided = y_pred is not None and y_true is not None
+        loss_provided = loss is not None and batch_size is not None
+        assert (data_provided or loss_provided) - (data_provided and loss_provided), \
+            'One and only one of (y_pred, y_true) and (loss, batch_size) must be provided.'
+        if data_provided:
+            self.update_batch_loss_with_metric_function(y_pred, y_true)
+        else:
+            self.update_batch_loss_with_value(loss, batch_size)
+        
+    def update_batch_loss_with_metric_function(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> None:
+        assert self.metric_function is not None, \
+            "update_batch_loss_with_metric_function requires a metric function."
+        batch_loss = self.metric_function(y_pred, y_true)
+        batch_size = len(y_pred)
+        self.epoch_loss = self.epoch_loss + batch_loss
+        self.accumulated_batch_size = self.accumulated_batch_size + batch_size
+        
+    def update_batch_loss_with_value(self, loss: float, batch_size: int) -> None:
+        self.epoch_loss = self.epoch_loss + loss
+        self.accumulated_batch_size = self.accumulated_batch_size + batch_size
 
     def print(self) -> None:
         print(self.table)
@@ -49,13 +90,26 @@ class IterativeReconstructor(Reconstructor):
                  dataset: Dataset,
                  batch_size: int = 1,
                  n_epochs: int = 100,
+                 metric_function: Optional[torch.nn.Module] = None,
                  *args, **kwargs
     ) -> None:
+        """
+        Iterative reconstructor base class.
+        
+        :param variable_group: The variable group containing optimizable and non-optimizable variables.
+        :param dataset: The dataset containing diffraction patterns.
+        :param batch_size: The batch size.
+        :param n_epochs: The number of epochs.
+        :param metric_function: The function that computes the tracked cost. Different from the
+            loss_function argument in some reconstructors, this function is only used for cost tracking
+            and is not involved in the reconstruction math.
+        """
         super().__init__(variable_group, *args, **kwargs)
         self.batch_size = batch_size
         self.dataset = dataset
         self.n_epochs = n_epochs
         self.dataloader = None
+        self.metric_function = metric_function
 
     def build(self) -> None:
         super().build()
@@ -69,7 +123,7 @@ class IterativeReconstructor(Reconstructor):
                                      shuffle=True)
 
     def build_loss_tracker(self):
-        self.loss_tracker = LossTracker()
+        self.loss_tracker = LossTracker(metric_function=self.metric_function)
 
     def get_config_dict(self) -> dict:
         d = super().get_config_dict()
@@ -84,6 +138,7 @@ class AnalyticalIterativeReconstructor(IterativeReconstructor):
         dataset: Dataset,
         batch_size: int = 1,
         n_epochs: int = 100,
+        metric_function: Optional[torch.nn.Module] = None,
         *args, **kwargs
     ) -> None:
         super().__init__(
@@ -91,6 +146,7 @@ class AnalyticalIterativeReconstructor(IterativeReconstructor):
             dataset=dataset,
             batch_size=batch_size,
             n_epochs=n_epochs,
+            metric_function=metric_function,
             *args, **kwargs)
         self.update_step_module: torch.nn.Module = None
 

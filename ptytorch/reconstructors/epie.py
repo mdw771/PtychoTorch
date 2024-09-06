@@ -28,11 +28,12 @@ class EPIEReconstructor(AnalyticalIterativeReconstructor):
         for var in self.variable_group.get_optimizable_variables():
             assert 'lr' in var.optimizer_params.keys(), \
                 "Optimizable variable {} must have 'lr' in optimizer_params.".format(var.name)
+        if self.metric_function is not None:
+            raise NotImplementedError('EPIEReconstructor does not support metric function yet.')
 
     def run(self, *args, **kwargs):
         torch.no_grad()
         for i_epoch in tqdm.trange(self.n_epochs):
-            epoch_loss = 0.0
             for batch_data in self.dataloader:
                 input_data = [x.to(torch.get_default_device()) for x in batch_data[:-1]]
                 y_true = batch_data[-1].to(torch.get_default_device())
@@ -41,9 +42,8 @@ class EPIEReconstructor(AnalyticalIterativeReconstructor):
                 self.apply_updates(input_data[0], delta_o, delta_p)
                 batch_loss = torch.mean(batch_loss)
 
-                epoch_loss = epoch_loss + batch_loss.item()
-            epoch_loss = epoch_loss / len(self.dataloader)
-            self.loss_tracker.update(epoch=i_epoch, loss=epoch_loss)
+                self.loss_tracker.update_batch_loss_with_value(batch_loss.item(), len(y_true))
+            self.loss_tracker.conclude_epoch(epoch=i_epoch)
             self.loss_tracker.print_latest()
 
     @staticmethod

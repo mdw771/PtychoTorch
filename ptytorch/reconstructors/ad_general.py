@@ -6,7 +6,7 @@ from torch.utils.data import Dataset
 
 from ptytorch.data_structures import VariableGroup
 from ptytorch.forward_models import ForwardModel
-from ptytorch.reconstructors.base import IterativeReconstructor
+from ptytorch.reconstructors.base import IterativeReconstructor, LossTracker
 
 
 class AutodiffReconstructor(IterativeReconstructor):
@@ -19,6 +19,7 @@ class AutodiffReconstructor(IterativeReconstructor):
                  batch_size: int = 1,
                  loss_function: torch.nn.Module = None,
                  n_epochs: int = 100,
+                 metric_function: Optional[torch.nn.Module] = None,
                  *args, **kwargs
     ) -> None:
         super().__init__(
@@ -26,6 +27,7 @@ class AutodiffReconstructor(IterativeReconstructor):
             dataset=dataset,
             batch_size=batch_size,
             n_epochs=n_epochs,
+            metric_function=metric_function,
             *args, **kwargs
         )
         self.forward_model_class = forward_model_class
@@ -43,6 +45,10 @@ class AutodiffReconstructor(IterativeReconstructor):
     def build(self) -> None:
         super().build()
         self.build_forward_model()
+        
+    def build_loss_tracker(self):
+        f = self.loss_function if self.metric_function is None else self.metric_function
+        self.loss_tracker = LossTracker(metric_function=f)
 
     def build_forward_model(self):
         self.forward_model = self.forward_model_class(self.variable_group, **self.forward_model_params)
@@ -52,13 +58,11 @@ class AutodiffReconstructor(IterativeReconstructor):
 
     def run(self, *args, **kwargs):
         for i_epoch in tqdm.trange(self.n_epochs):
-            epoch_loss = 0.0
             for batch_data in self.dataloader:
                 input_data = [x.to(torch.get_default_device()) for x in batch_data[:-1]]
                 y_true = batch_data[-1].to(torch.get_default_device())
 
                 y_pred = self.forward_model(*input_data)
-                batch_loss = self.loss_function(y_pred, y_true)
                 batch_loss = self.loss_function(y_pred, y_true)
 
                 batch_loss.backward()
@@ -66,9 +70,8 @@ class AutodiffReconstructor(IterativeReconstructor):
                 self.step_all_optimizers()
                 self.forward_model.zero_grad()
 
-                epoch_loss = epoch_loss + batch_loss.item()
-            epoch_loss = epoch_loss / len(self.dataloader)
-            self.loss_tracker.update(epoch=i_epoch, loss=epoch_loss)
+                self.loss_tracker.update_batch_loss_with_value(batch_loss.item(), len(y_true))
+            self.loss_tracker.conclude_epoch(epoch=i_epoch)
             self.loss_tracker.print_latest()
 
     def step_all_optimizers(self):
