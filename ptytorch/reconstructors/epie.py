@@ -42,7 +42,7 @@ class EPIEReconstructor(AnalyticalIterativeReconstructor):
                 self.apply_updates(input_data[0], delta_o, delta_p)
                 batch_loss = torch.mean(batch_loss)
 
-                self.loss_tracker.update_batch_loss_with_value(batch_loss.item(), len(y_true))
+                self.loss_tracker.update_batch_loss_with_value(batch_loss.item())
             self.loss_tracker.conclude_epoch(epoch=i_epoch)
             self.loss_tracker.print_latest()
 

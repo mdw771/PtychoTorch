@@ -5,6 +5,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 
 from ptytorch.data_structures import VariableGroup
+from ptytorch.utils import to_numpy
 
 
 class LossTracker:
@@ -15,11 +16,11 @@ class LossTracker:
         self.table['epoch'] = self.table['epoch'].astype(int)
         self.metric_function = metric_function
         self.epoch_loss = 0.0
-        self.accumulated_batch_size = 0
+        self.accumulated_num_batches = 0
         self.epoch = 0
 
     def conclude_epoch(self, epoch: Optional[int] = None) -> None:
-        self.epoch_loss = self.epoch_loss / self.accumulated_batch_size
+        self.epoch_loss = self.epoch_loss / self.accumulated_num_batches
         if epoch is None:
             epoch = self.epoch
             self.epoch += 1
@@ -27,7 +28,7 @@ class LossTracker:
             self.epoch = epoch + 1
         self.table.loc[len(self.table)] = [epoch, self.epoch_loss]
         self.epoch_loss = 0.0
-        self.accumulated_batch_size = 0
+        self.accumulated_num_batches = 0
         
     def update_batch_loss(self, 
                           y_pred: Optional[torch.Tensor] = None, 
@@ -48,13 +49,14 @@ class LossTracker:
         assert self.metric_function is not None, \
             "update_batch_loss_with_metric_function requires a metric function."
         batch_loss = self.metric_function(y_pred, y_true)
-        batch_size = len(y_pred)
+        batch_loss = to_numpy(batch_loss)
         self.epoch_loss = self.epoch_loss + batch_loss
-        self.accumulated_batch_size = self.accumulated_batch_size + batch_size
+        self.accumulated_num_batches = self.accumulated_num_batches + 1
         
-    def update_batch_loss_with_value(self, loss: float, batch_size: int) -> None:
+    def update_batch_loss_with_value(self, loss: float) -> None:
+        loss = to_numpy(loss)
         self.epoch_loss = self.epoch_loss + loss
-        self.accumulated_batch_size = self.accumulated_batch_size + batch_size
+        self.accumulated_num_batches = self.accumulated_num_batches + 1
 
     def print(self) -> None:
         print(self.table)

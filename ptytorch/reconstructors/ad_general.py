@@ -70,7 +70,7 @@ class AutodiffReconstructor(IterativeReconstructor):
                 self.step_all_optimizers()
                 self.forward_model.zero_grad()
 
-                self.loss_tracker.update_batch_loss_with_value(batch_loss.item(), len(y_true))
+                self.loss_tracker.update_batch_loss_with_value(batch_loss.item())
             self.loss_tracker.conclude_epoch(epoch=i_epoch)
             self.loss_tracker.print_latest()
 
