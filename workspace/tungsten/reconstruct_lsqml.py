@@ -30,7 +30,6 @@ dataset = PtychographyDataset(patterns)
 
 f_meta = h5py.File('data/metadata_250_truePos.hdf5', 'r')
 probe = f_meta['probe'][...]
-# probe = probe[[0], :, :]
 
 probe = rescale_probe(probe, patterns)
 positions = np.stack([f_meta['probe_position_y_m'][...], f_meta['probe_position_x_m'][...]], axis=1)

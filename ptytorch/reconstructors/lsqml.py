@@ -92,7 +92,7 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
         
         self.update_object_and_probe(chi, obj_patches, positions)
             
-    def update_object_and_probe(self, chi, obj_patches, positions, delta=1e-5, gamma=1e-5):
+    def update_object_and_probe(self, chi, obj_patches, positions, gamma=1e-5):
         delta_p_i = self._calculate_probe_update_direction(chi, obj_patches)  # Eq. 24a
         delta_o_i = self._calculate_object_patch_update_direction(chi)
         delta_p_hat = self._precondition_probe_update_direction(delta_p_i)  # Eq. 25a
@@ -102,7 +102,7 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
         )
         
         if self.variable_group.probe.optimizable:
-            self._apply_probe_update(alpha_p_i, delta_p_hat, obj_patches)
+            self._apply_probe_update(alpha_p_i, delta_p_hat)
             
         if self.variable_group.object.optimizable:
             self._apply_object_update(alpha_o_i, delta_o_hat, positions)
@@ -193,18 +193,15 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
         delta_p_hat = delta_p_hat / delta_p.shape[0]
         return delta_p_hat
     
-    def _apply_probe_update(self, alpha_p_i, delta_p_hat, obj_patches, delta=1e-5):
+    def _apply_probe_update(self, alpha_p_i, delta_p_hat):
         # Shape of alpha_p_i:        (batch_size,)
-        # Shape of delta_p_hat:      (n_probe_modes, h, w)
-        # Shape of obj_patches:      (batch_size, h, w)
-        # Shape of update_vec:       (batch_size, n_probe_modes, h, w)
-        update_vec = delta_p_hat * obj_patches[:, None, :, :].abs() ** 2
-        update_vec = update_vec * alpha_p_i[:, None, None, None]
-        # Shape of update_vec:       (n_probe_modes, h, w)
-        update_vec = update_vec.sum(0)
-        # Shape of update_vec_denom: (h, w)
-        update_vec_denom = (obj_patches.abs() ** 2).sum(0)
-        update_vec = update_vec / (update_vec_denom + delta)
+        # Shape of delta_p_hat:      (n_probe_modes, h, w)        
+        # PtychoShelves code simply multiplies delta_p_hat with averaged step size. 
+        # This is different from the paper which does the following:
+        #     update_vec = delta_p_hat * obj_patches[:, None, :, :].abs() ** 2
+        #     update_vec = update_vec * alpha_p_i[:, None, None, None]
+        #     update_vec = update_vec / ((obj_patches.abs() ** 2).sum(0) + delta)
+        update_vec = delta_p_hat * torch.mean(alpha_p_i)
         self.variable_group.probe.tensor.set_data(
             self.variable_group.probe.tensor.complex() + update_vec
         )
