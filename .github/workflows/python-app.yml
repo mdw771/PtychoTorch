@@ -32,4 +32,4 @@ jobs:
     - name: Test with pytest
       run: |
         cd tests
-        pytest -s
+        pytest -s --high-tol

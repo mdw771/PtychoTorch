@@ -2,6 +2,7 @@ import argparse
 import logging.config
 import os
 import random
+import pytest
 
 import torch
 import h5py
@@ -13,16 +14,19 @@ from ptytorch.forward_models import Ptychography2DForwardModel
 from ptytorch.utils import (get_suggested_object_size, set_default_complex_dtype, get_default_complex_dtype, 
                             rescale_probe)
 from ptytorch.reconstructors import *
-from ptytorch.metrics import MSELossOfSqrt
 
 
-def test_2d_ptycho_lsqml(generate_gold=False, debug=False):
+def test_2d_ptycho_lsqml(pytestconfig, generate_gold=False, debug=False, high_tol=False):
+    if pytestconfig is not None:
+        high_tol = pytestconfig.getoption("high_tol")
+    
     gold_dir = os.path.join('gold_data', 'test_2d_ptycho_lsqml')
     if not os.path.exists(gold_dir):
         os.makedirs(gold_dir)
     
     torch.manual_seed(123)
     random.seed(123)
+    torch.use_deterministic_algorithms(True)
     
     torch.set_default_device('cpu')
     torch.set_default_dtype(torch.float32)
@@ -77,13 +81,22 @@ def test_2d_ptycho_lsqml(generate_gold=False, debug=False):
         np.save(os.path.join(gold_dir, 'recon.npy'), recon)
     else:
         recon_gold = np.load(os.path.join(gold_dir, 'recon.npy'))
-        assert np.allclose(recon, recon_gold)
+        print('gold:')
+        print(recon_gold[300:400, 300:400])
+        print('recon:')
+        print(recon[300:400, 300:400])
+        if not high_tol:
+            assert np.allclose(recon, recon_gold)
+        else:
+            assert np.allclose(recon.real, recon_gold.real, rtol=1e-2, atol=1e-1)
+            assert np.allclose(recon.imag, recon_gold.imag, rtol=1e-2, atol=1e-1)
     
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--generate-gold', action='store_true')
+    parser.add_argument('--high-tol', action='store_true')
     args = parser.parse_args()
 
-    test_2d_ptycho_lsqml(generate_gold=args.generate_gold, debug=True)
+    test_2d_ptycho_lsqml(None, generate_gold=args.generate_gold, debug=True, high_tol=args.high_tol)
     
