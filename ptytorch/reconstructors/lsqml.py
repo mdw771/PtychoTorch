@@ -10,7 +10,7 @@ from ptytorch.data_structures import Ptychography2DVariableGroup
 from ptytorch.forward_models import Ptychography2DForwardModel, PtychographyGaussianNoiseModel, PtychographyPoissonNoiseModel
 from ptytorch.metrics import MSELossOfSqrt
 import ptytorch.propagation as prop
-from ptytorch.image_proc import place_patches_fourier_shift, extract_patches_fourier_shift
+from ptytorch.image_proc import place_patches_fourier_shift, extract_patches_fourier_shift, gaussian_gradient
 from ptytorch.utils import chunked_processing
 
 
@@ -81,7 +81,7 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
         psi_opt = prop.back_propagate_far_field(psi_far)
         return psi_opt
     
-    def run_real_space_step(self, psi_opt):
+    def run_real_space_step(self, psi_opt, indices):
         """
         Run step 2 of LSQ-ML, which updates the object, probe, and other variables
         using psi updated in step 1. 
@@ -98,8 +98,11 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
         obj_patches = self.forward_model.intermediate_variables['obj_patches']
         
         self.update_object_and_probe(chi, obj_patches, positions)
+        if self.variable_group.probe_positions.optimizable:
+            self.update_probe_positions(chi, indices, obj_patches)
             
     def update_object_and_probe(self, chi, obj_patches, positions, gamma=1e-5):
+        # TODO: avoid unnecessary computations when not both of object and probe are optimizable
         delta_p_i = self._calculate_probe_update_direction(chi, obj_patches)  # Eq. 24a
         delta_o_i = self._calculate_object_patch_update_direction(chi)
         delta_p_hat = self._precondition_probe_update_direction(delta_p_i)  # Eq. 25a
@@ -147,6 +150,9 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
         return alpha_o_i, alpha_p_i
     
     def _calculate_probe_update_direction(self, chi, obj_patches):
+        """
+        Eq. 24a of Odstrcil (2018).
+        """
         # Shape of chi:          (batch_size, n_probe_modes, h, w)
         # Shape of obj_patches:  (batch_size, h, w)
         # Shape of delta_p:      (batch_size, n_probe_modes, h, w)
@@ -154,6 +160,9 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
         return delta_p
         
     def _calculate_probe_update_step_size(self, delta_p, chi, obj_patches, gamma=1e-5):
+        """
+        Eq. 23a of Odstrcil (2018).
+        """
         # Shape of delta_p:      (batch_size, n_probe_modes, h, w)
         # Shape of chi:          (batch_size, n_probe_modes, h, w)
         # Shape of obj_patches:  (batch_size, h, w)
@@ -179,6 +188,9 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
         return delta_p_hat
     
     def _apply_probe_update(self, alpha_p_i, delta_p_hat):
+        """
+        Eq. 27a of Odstrcil, 2018.
+        """
         # Shape of alpha_p_i:        (batch_size,)
         # Shape of delta_p_hat:      (n_probe_modes, h, w)        
         # PtychoShelves code simply multiplies delta_p_hat with averaged step size. 
@@ -192,6 +204,9 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
         )
     
     def _calculate_object_patch_update_direction(self, chi):
+        """
+        Eq. 24b of Odstrcil, 2018.
+        """
         # Shape of probe:        (n_probe_modes, h, w)
         probe = self.variable_group.probe.tensor.complex()
         # Shape of chi:          (batch_size, n_probe_modes, h, w)
@@ -201,6 +216,9 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
         return delta_o_patches
     
     def _calculate_object_update_step_size(self, delta_o_patches, chi, gamma=1e-5):
+        """
+        Eq. 23b of Odstrcil, 2018.
+        """
         probe = self.variable_group.probe.tensor.complex()
         # Shape of delta_o_patches: (batch_size, h, w)
         # Shape of probe:           (batch_size, n_probe_modes, h, w)
@@ -250,6 +268,9 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
         return delta_o_hat, delta_o_patches
     
     def _apply_object_update(self, alpha_o_i, delta_o_hat, positions, delta=1e-5):
+        """
+        Eq. 27b of Odstrcil, 2018.
+        """
         # Shape of alpha_o_i:    (batch_size,)
         probe = self.variable_group.probe.tensor.complex()
         # Sum over probe modes
@@ -268,18 +289,82 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
         update_vec = (alpha_probe_map * delta_o_hat) / (probe_map + delta)
         self.variable_group.object.set_data(self.variable_group.object.data + update_vec)
         return update_vec
+    
+    def update_probe_positions(self, chi, indices, obj_patches):
+        delta_pos = self._calculate_probe_position_update_direction(chi, obj_patches)
+        self._apply_probe_position_update(delta_pos, indices)
+    
+    def _calculate_probe_position_update_direction(self, chi, obj_patches, eps=1e-6):
+        """
+        Calculate the update direction for probe positions. This routine calculates the gradient with regards
+        to probe positions themselves, in contrast to the delta of probe caused by a 1-pixel shift as in
+        Odstrcil (2018). However, this is the method implemented in both PtychoShelves and Tike.
+        
+        Denote probe positions as s. Given dL/dP = -chi * O.conj() (Eq. 24a), dL/ds = dL/dO * dO/ds = 
+        real(-chi * P.conj() * grad_O.conj()), where grad_O is the spatial gradient of the probe in x or y.
+        """
+        # Shape of probe:          (n_probe_modes, h, w)
+        # Shape of obj_patches:    (batch_size, h, w)
+        probe_m0 = self.variable_group.probe.get_mode(0)
+        chi_m0 = chi[:, 0, :, :]
+        dody, dodx = gaussian_gradient(obj_patches, sigma=0.33)
+        
+        pdodx = dodx * probe_m0
+        dldx = (torch.real(pdodx.conj() * chi_m0)).sum(-1).sum(-1)
+        denom_x = (pdodx.abs() ** 2).sum(-1).sum(-1)
+        dldx = dldx / (denom_x + max(denom_x.max(), eps))
+        
+        pdody = dody * probe_m0
+        dldy = (torch.real(pdody.conj() * chi_m0)).sum(-1).sum(-1)
+        denom_y = (pdody.abs() ** 2).sum(-1).sum(-1)
+        dldy = dldy / (denom_y + max(denom_y.max(), eps))
+                
+        delta_pos = torch.stack([dldy, dldx], dim=1)
+        return delta_pos
+    
+    def _apply_probe_position_update(self, delta_pos, indices):
+        # TODO: allow setting step size or use adaptive step size
+        if self.variable_group.probe_positions.update_magnitude_limit > 0:
+            lim = self.variable_group.probe_positions.update_magnitude_limit
+            delta_pos = torch.clamp(delta_pos, -lim, lim)
+        self.variable_group.probe_positions.tensor[indices] += 1e-1 * delta_pos
+        
+    def _calculate_fourier_probe_position_update_direction(self, chi, positions, obj_patches):
+        """
+        Eq. 28 of Odstrcil (2018).
+        """
+        raise NotImplementedError
+        probe = self.variable_group.probe.tensor.complex()
+        f_probe = torch.fft.fft2(probe)
+        
+        # coord_ramp = torch.fft.fftfreq(probe.shape[-2])
+        # dp = 2j * torch.pi * coord_ramp[:, None] * obj_patches[:, None, :, :] * probe[None, :, :, :]
+        # nom_y = (dp.conj() * chi).real()
+        # denom_y = dp.abs() ** 2
+        
+        # coord_ramp = torch.fft.fftfreq(probe.shape[-1])
+        # dp = 2j * torch.pi * coord_ramp[None, :] * obj_patches[:, None, :, :] * probe[None, :, :, :]
+        # nom_x = (dp.conj() * chi).real()
+        # denom_x = dp.abs() ** 2
+        
+        coord_ramp = torch.fft.fftfreq(probe.shape[-2])
+        delta_p_y = torch.ifft2(2 * torch.pi * coord_ramp[:, None] * 1j * f_probe)
+        
+        coord_ramp = torch.fft.fftfreq(probe.shape[-1])
+        delta_p_x = torch.ifft2(2 * torch.pi * coord_ramp[None, :] * 1j * f_probe)
         
     def run(self, *args, **kwargs):
         for i_epoch in tqdm.trange(self.n_epochs):
             for batch_data in self.dataloader:
                 input_data = [x.to(torch.get_default_device()) for x in batch_data[:-1]]
+                indices = input_data[0]
                 y_true = batch_data[-1].to(torch.get_default_device())
 
                 with torch.no_grad():
                     y_pred = self.forward_model(*input_data)
                     
                     psi_opt = self.run_reciprocal_space_step(y_pred, y_true)
-                    self.run_real_space_step(psi_opt)
+                    self.run_real_space_step(psi_opt, indices)
                     
                     self.loss_tracker.update_batch_loss_with_metric_function(y_pred, y_true)
             self.loss_tracker.conclude_epoch(epoch=i_epoch)

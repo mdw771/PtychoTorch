@@ -1,4 +1,6 @@
 from typing import Tuple, Literal
+import math
+import logging
 
 import torch
 from torch import Tensor
@@ -118,11 +120,81 @@ def fourier_shift(images: Tensor, shifts: Tensor) -> Tensor:
     if not images.dtype.is_complex:
         shifted_images = shifted_images.real
     return shifted_images
+
+
+def gaussian_gradient(image: Tensor, sigma: float = 1.0, kernel_size=5) -> Tensor:
+    """
+    Calculate the gradient of a 2D image with a Gaussian-derivative kernel.
+
+    :param image: a (... H, W) tensor of images.
+    :param sigma: sigma of the Gaaussian.
+    :return: a tuple of 2 images with the gradient in y and x directions. 
+    """
+    r = torch.arange(kernel_size) - (kernel_size - 1) / 2.0
+    kernel = -r / (math.sqrt(2 * math.pi) * sigma ** 3) * torch.exp(-r ** 2 / (2 * sigma ** 2))
+    grad_y = convolve2d(image, kernel.view(-1, 1), padding='same', padding_mode='replicate')
+    grad_x = convolve2d(image, kernel.view(1, -1), padding='same', padding_mode='replicate')
+    
+    # Gate the gradients
+    grads = [grad_y, grad_x]
+    for i, g in enumerate(grads):
+        m = torch.logical_and(grad_y.abs() < 1e-6, grad_y.abs() != 0)
+        if torch.count_nonzero(m) > 0:
+            logging.debug('Gradient magnitudes between 0 and 1e-6 are set to 0.')
+            g = g * torch.logical_not(m)
+            grads[i] = g
+    grad_y, grad_x = grads
+    return grad_y, grad_x
+
+
+def convolve2d(image: Tensor, 
+               kernel: Tensor, 
+               padding: Literal['same', 'valid'] = 'same', 
+               padding_mode: Literal['replicate', 'constant'] = 'replicate'
+    ) -> Tensor:
+    """
+    2D convolution with an explicitly given kernel using torch.nn.functional.conv2d.
+    
+    This routine flips the kernel to adhere with the textbook definition of convolution.
+    torch.nn.functional.conv2d does not flip the kernel in itself.
+    
+    :param image: a (... H, W) tensor of images. If the number of dimensions is greater than 2, 
+        the last two dimensions are interpreted as height and width, respectively.
+    :param kernel: a (H, W) tensor of kernel.
+    """
+    assert(image.ndim >= 2)
+    assert(kernel.ndim == 2)
+    assert(kernel.shape[-2] % 2 == 1 and kernel.shape[-1] % 2 == 1)
+    
+    if image.dtype.is_complex:
+        kernel = kernel.type(image.dtype)
+    
+    # Reshape image to (N, 1, H, W).
+    orig_shape = image.shape
+    image = image.reshape(-1, 1, image.shape[-2], image.shape[-1])
+    
+    # Reshape kernel to (1, 1, H, W).
+    kernel = kernel.flip((0, 1))
+    kernel = kernel.reshape(1, 1, kernel.shape[-2], kernel.shape[-1])
+    
+    if padding == 'same':
+        pad_lengths = [kernel.shape[-1] // 2, kernel.shape[-1] // 2,
+                       kernel.shape[-2] // 2, kernel.shape[-2] // 2]
+        image = torch.nn.functional.pad(image, pad_lengths, mode=padding_mode)
+    
+    result = torch.nn.functional.conv2d(image, kernel, padding='valid')
+    result = result.reshape(*orig_shape[:-2], result.shape[-2], result.shape[-1])
+    return result
     
 
 if __name__ == '__main__':
-    a = torch.zeros([10, 10]).float()
-    patches = torch.arange(6).reshape(1, 6).repeat(6, 1).reshape(1, 6, 6)
-    pos = torch.tensor([[3., 3.]])
-    print(patches)
-    print(place_patches_fourier_shift(a, pos, patches))
+    img = torch.zeros(10, 10)
+    img[5:, 5:] = 1
+    gy, gx = gaussian_gradient(img, sigma=0.33)
+    print(gx)
+    
+    import scipy.ndimage as ndi
+    img = img.detach().numpy()
+    gx = ndi.gaussian_filter1d(-img, sigma=0.3, order=1, axis=-1, mode='nearest')
+    print(gx)
+    

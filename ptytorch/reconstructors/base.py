@@ -82,6 +82,7 @@ class Reconstructor:
 
     def get_config_dict(self) -> dict:
         d = self.variable_group.get_config_dict()
+        d.update({'reconstructor': self.__class__.__name__})
         return d
 
 
@@ -129,7 +130,8 @@ class IterativeReconstructor(Reconstructor):
 
     def get_config_dict(self) -> dict:
         d = super().get_config_dict()
-        d.update({'batch_size': self.batch_size, 'n_epochs': self.n_epochs})
+        d.update({'batch_size': self.batch_size, 
+                  'n_epochs': self.n_epochs})
         return d
 
 

@@ -19,7 +19,7 @@ from ptytorch.reconstructors import *
 from ptytorch.metrics import MSELossOfSqrt
 
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 
 torch.set_default_device('cuda')
 torch.set_default_dtype(torch.float32)
@@ -28,7 +28,7 @@ set_default_complex_dtype(torch.complex64)
 patterns = h5py.File('data/dp_250.hdf5', 'r')['dp'][...]
 dataset = PtychographyDataset(patterns)
 
-f_meta = h5py.File('data/metadata_250_truePos.hdf5', 'r')
+f_meta = h5py.File('data/metadata_250_nominalPos.hdf5', 'r')
 probe = f_meta['probe'][...]
 
 probe = rescale_probe(probe, patterns)
@@ -64,7 +64,7 @@ probe = Probe(
 
 probe_positions = ProbePositions(
     data=positions_px,
-    optimizable=False,
+    optimizable=True,
     optimizer_class=torch.optim.Adam,
     optimizer_params={'lr': 1e-1}
 )
@@ -72,7 +72,7 @@ probe_positions = ProbePositions(
 reconstructor = LSQMLReconstructor(
     variable_group=Ptychography2DVariableGroup(object=object, probe=probe, probe_positions=probe_positions),
     dataset=dataset,
-    batch_size=96,
+    batch_size=48,
     n_epochs=64,
     noise_model='gaussian',
 )

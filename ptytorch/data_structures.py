@@ -258,7 +258,8 @@ class ProbePositions(Variable):
     pixel_size_m: float = 1.0
     conversion_factor_dict = {'nm': 1e9, 'um': 1e6, 'm': 1.0}
         
-    def __init__(self, *args, pixel_size_m: float = 1.0, name: str = 'probe_positions', **kwargs):
+    def __init__(self, *args, pixel_size_m: float = 1.0, name: str = 'probe_positions', 
+                 update_magnitude_limit=0, **kwargs):
         """Probe positions. 
 
         :param data: a tensor of shape (N, 2) giving the probe positions in pixels. 
@@ -266,6 +267,7 @@ class ProbePositions(Variable):
         """
         super().__init__(*args, name=name, is_complex=False, **kwargs)
         self.pixel_size_m = pixel_size_m
+        self.update_magnitude_limit = update_magnitude_limit
         
     def get_positions_in_physical_unit(self, unit: str = 'm'):
         return self.tensor * self.pixel_size_m * self.conversion_factor_dict[unit]
