@@ -85,6 +85,7 @@ class Variable(Module):
         self.optimizer_params = {} if optimizer_params is None else optimizer_params
         self.optimizer = None
         self.is_complex = is_complex
+        self.preconditioner = None
         
         if is_complex:
             if data is not None:

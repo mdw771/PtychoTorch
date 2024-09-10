@@ -101,6 +101,31 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
         if self.variable_group.probe_positions.optimizable:
             self.update_probe_positions(chi, indices, obj_patches)
             
+    def update_preconditioners(self):
+        if self.variable_group.probe.optimizable or self.variable_group.object.preconditioner is None:
+            self._update_object_preconditioner()
+        
+    def _update_object_preconditioner(self):
+        positions_all = self.variable_group.probe_positions.tensor
+        # Shape of probe:        (n_probe_modes, h, w)
+        probe = self.variable_group.probe.tensor.complex()
+        object = self.variable_group.object.tensor.complex()
+        
+        probe_int = (probe.abs() ** 2).sum(0, keepdim=True)
+        # Shape of probe_int:    (n_scan_points, h, w)
+        probe_int = probe_int.repeat(len(positions_all), 1, 1)
+        # Stitch probes of all positions on the object buffer
+        # TODO: allow setting chunk size externally
+        probe_sq_map = chunked_processing(
+            func=place_patches_fourier_shift,
+            common_kwargs={'op': 'add'},
+            chunkable_kwargs={'positions': positions_all + self.variable_group.object.center_pixel,
+                              'patches': probe_int},
+            iterated_kwargs={'image': torch.zeros_like(object).type(torch.get_default_dtype())},
+            chunk_size=64
+        )
+        self.variable_group.object.preconditioner = probe_sq_map
+            
     def update_object_and_probe(self, chi, obj_patches, positions, gamma=1e-5):
         # TODO: avoid unnecessary computations when not both of object and probe are optimizable
         delta_p_i = self._calculate_probe_update_direction(chi, obj_patches)  # Eq. 24a
@@ -235,30 +260,13 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
         """
         Eq. 25b of Odstrcil, 2018.
         """
-        positions_all = self.variable_group.probe_positions.tensor
-        # Shape of probe:        (n_probe_modes, h, w)
-        probe = self.variable_group.probe.tensor.complex()
-
         # Stitch all delta O patches on the object buffer
         # Shape of delta_o_hat:  (h_whole, w_whole)
         delta_o_hat = self.variable_group.object.place_patches_on_empty_buffer(positions, delta_o_patches)
         
-        probe_int = (probe.abs() ** 2).sum(0, keepdim=True)
-        # Shape of probe_int:    (n_scan_points, h, w)
-        probe_int = probe_int.repeat(len(positions_all), 1, 1)
-        # Stitch probes of all positions on the object buffer
-        # TODO: allow setting chunk size externally
-        probe_sq_map = chunked_processing(
-            func=place_patches_fourier_shift,
-            common_kwargs={'op': 'add'},
-            chunkable_kwargs={'positions': positions_all + self.variable_group.object.center_pixel,
-                              'patches': probe_int},
-            iterated_kwargs={'image': torch.zeros_like(delta_o_hat).type(torch.get_default_dtype())},
-            chunk_size=64
-        )
-        
+        preconditioner = self.variable_group.object.preconditioner
         delta_o_hat = delta_o_hat / torch.sqrt(
-            probe_sq_map ** 2 + probe_sq_map.max() ** 2)
+            preconditioner ** 2 + preconditioner.max() ** 2)
         
         # Re-extract delta O patches
         delta_o_patches = extract_patches_fourier_shift(
@@ -355,6 +363,10 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
         
     def run(self, *args, **kwargs):
         for i_epoch in tqdm.trange(self.n_epochs):
+            
+            # Update preconditioner at the start of each epoch
+            self.update_preconditioners()
+            
             for batch_data in self.dataloader:
                 input_data = [x.to(torch.get_default_device()) for x in batch_data[:-1]]
                 indices = input_data[0]
