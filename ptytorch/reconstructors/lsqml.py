@@ -12,6 +12,7 @@ from ptytorch.metrics import MSELossOfSqrt
 import ptytorch.propagation as prop
 from ptytorch.image_proc import place_patches_fourier_shift, extract_patches_fourier_shift, gaussian_gradient
 from ptytorch.utils import chunked_processing
+import ptytorch.math as pmath
 
 
 class LSQMLReconstructor(AnalyticalIterativeReconstructor):
@@ -140,7 +141,7 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
             self._apply_probe_update(alpha_p_i, delta_p_hat)
             
         if self.variable_group.object.optimizable:
-            self._apply_object_update(alpha_o_i, delta_o_hat, positions)
+            self._apply_object_update(alpha_o_i, delta_o_hat)
         
     def calculate_object_and_probe_update_step_sizes(self, chi, obj_patches, delta_o_i, delta_p_i, gamma=1e-5):
         """
@@ -266,7 +267,7 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
         
         preconditioner = self.variable_group.object.preconditioner
         delta_o_hat = delta_o_hat / torch.sqrt(
-            preconditioner ** 2 + preconditioner.max() ** 2)
+            preconditioner ** 2 + (preconditioner.max() * alpha_mix) ** 2)
         
         # Re-extract delta O patches
         delta_o_patches = extract_patches_fourier_shift(
@@ -275,28 +276,12 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
             delta_o_patches.shape[-2:])
         return delta_o_hat, delta_o_patches
     
-    def _apply_object_update(self, alpha_o_i, delta_o_hat, positions, delta=1e-5):
+    def _apply_object_update(self, alpha_o_i, delta_o_hat):
         """
         Eq. 27b of Odstrcil, 2018.
         """
-        # Shape of alpha_o_i:    (batch_size,)
-        probe = self.variable_group.probe.tensor.complex()
-        # Sum over probe modes
-        probe_int = (probe.abs() ** 2).sum(0, keepdim=True)
-        # Shape of probe_int:    (batch_size, h, w)
-        probe_int = probe_int.repeat(len(alpha_o_i), 1, 1)
-        alpha_probe_int = alpha_o_i.view(-1, 1, 1) * probe_int
-        alpha_probe_map = place_patches_fourier_shift(image=torch.zeros_like(delta_o_hat), 
-                                                      positions=positions + self.variable_group.object.center_pixel,
-                                                      patches=alpha_probe_int,
-                                                      op='add')
-        probe_map = place_patches_fourier_shift(image=torch.zeros_like(delta_o_hat), 
-                                                positions=positions + self.variable_group.object.center_pixel,
-                                                patches=probe_int,
-                                                op='add')
-        update_vec = (alpha_probe_map * delta_o_hat) / (probe_map + delta)
-        self.variable_group.object.set_data(self.variable_group.object.data + update_vec)
-        return update_vec
+        alpha_mean = pmath.trim_mean(alpha_o_i, 0.1)
+        self.variable_group.object.set_data(self.variable_group.object.data + alpha_mean * delta_o_hat)
     
     def update_probe_positions(self, chi, indices, obj_patches):
         delta_pos = self._calculate_probe_position_update_direction(chi, obj_patches)
