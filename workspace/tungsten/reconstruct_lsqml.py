@@ -52,20 +52,20 @@ object = Object2D(
     pixel_size_m=pixel_size_m,
     optimizable=True,
     optimizer_class=torch.optim.SGD,
-    optimizer_params={'lr': 1e-1}
+    optimizer_params={'lr': 1}
 )
 
 probe = Probe(
     data=probe,
     optimizable=True,
     optimizer_class=torch.optim.SGD,
-    optimizer_params={'lr': 1e-1}
+    optimizer_params={'lr': 1}
 )
 
 probe_positions = ProbePositions(
     data=positions_px,
     optimizable=True,
-    optimizer_class=torch.optim.Adam,
+    optimizer_class=torch.optim.SGD,
     optimizer_params={'lr': 1e-1}
 )
 

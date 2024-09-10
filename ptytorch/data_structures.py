@@ -124,6 +124,7 @@ class Variable(Module):
             else:
                 self.optimizer = self.optimizer_class([self.tensor], **self.optimizer_params)
             
+            
     def set_optimizable(self, optimizable):
         self.optimizable = optimizable
         self.tensor.requires_grad_(optimizable)
@@ -162,6 +163,27 @@ class Variable(Module):
             self.tensor.set_data(data)
         else:
             self.tensor = to_tensor(data)
+            
+    def get_grad(self):
+        if isinstance(self.tensor, ComplexTensor):
+            return self.tensor.data.grad[..., 0] + 1j * self.tensor.data.grad[..., 1]
+        else:
+            return self.tensor.grad
+            
+    def set_grad(self, grad):
+        """
+        Populate the `grad` field of the contained tensor, so that it can optimized
+        by PyTorch optimizers. You should not need this for AutodiffReconstructor.
+        However, method without automatic differentiation needs this to fill in the gradients
+        manually.
+
+        :param grad: tensor of gradient. 
+        """
+        if isinstance(self.tensor, ComplexTensor):
+            grad = torch.stack([grad.real, grad.imag], dim=-1)
+            self.tensor.data.grad = grad
+        else:
+            self.tensor.grad = grad
     
     
 class Object(Variable):

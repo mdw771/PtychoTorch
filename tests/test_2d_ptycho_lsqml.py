@@ -78,21 +78,19 @@ def test_2d_ptycho_lsqml(pytestconfig, generate_gold=False, debug=False, high_to
         pixel_size_m=pixel_size_m,
         optimizable=True,
         optimizer_class=torch.optim.SGD,
-        optimizer_params={'lr': 1e-1}
+        optimizer_params={'lr': 1}
     )
 
     probe = Probe(
         data=probe,
         optimizable=True,
         optimizer_class=torch.optim.SGD,
-        optimizer_params={'lr': 1e-1}
+        optimizer_params={'lr': 1}
     )
     
     probe_positions = ProbePositions(
         data=positions_px,
         optimizable=False,
-        optimizer_class=torch.optim.Adam,
-        optimizer_params={'lr': 1e-3}
     )
 
     reconstructor = LSQMLReconstructor(
@@ -123,21 +121,21 @@ def test_2d_ptycho_lsqml_poscorr(pytestconfig, generate_gold=False, debug=False,
         pixel_size_m=pixel_size_m,
         optimizable=True,
         optimizer_class=torch.optim.SGD,
-        optimizer_params={'lr': 1e-1}
+        optimizer_params={'lr': 1}
     )
 
     probe = Probe(
         data=probe,
         optimizable=True,
         optimizer_class=torch.optim.SGD,
-        optimizer_params={'lr': 1e-1}
+        optimizer_params={'lr': 1}
     )
     
     probe_positions = ProbePositions(
         data=positions_px,
         optimizable=True,
-        optimizer_class=torch.optim.Adam,
-        optimizer_params={'lr': 1e-3},
+        optimizer_class=torch.optim.SGD,
+        optimizer_params={'lr': 0.1},
         update_magnitude_limit=2.0
     )
 

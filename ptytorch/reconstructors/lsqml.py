@@ -224,10 +224,8 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
         #     update_vec = delta_p_hat * obj_patches[:, None, :, :].abs() ** 2
         #     update_vec = update_vec * alpha_p_i[:, None, None, None]
         #     update_vec = update_vec / ((obj_patches.abs() ** 2).sum(0) + delta)
-        update_vec = delta_p_hat * torch.mean(alpha_p_i)
-        self.variable_group.probe.tensor.set_data(
-            self.variable_group.probe.tensor.complex() + update_vec
-        )
+        self.variable_group.probe.set_grad(-delta_p_hat * torch.mean(alpha_p_i))
+        self.variable_group.probe.optimizer.step()
     
     def _calculate_object_patch_update_direction(self, chi):
         """
@@ -281,7 +279,8 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
         Eq. 27b of Odstrcil, 2018.
         """
         alpha_mean = pmath.trim_mean(alpha_o_i, 0.1)
-        self.variable_group.object.set_data(self.variable_group.object.data + alpha_mean * delta_o_hat)
+        self.variable_group.object.set_grad(-alpha_mean * delta_o_hat)
+        self.variable_group.object.optimizer.step()
     
     def update_probe_positions(self, chi, indices, obj_patches):
         delta_pos = self._calculate_probe_position_update_direction(chi, obj_patches)
@@ -320,7 +319,11 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
         if self.variable_group.probe_positions.update_magnitude_limit > 0:
             lim = self.variable_group.probe_positions.update_magnitude_limit
             delta_pos = torch.clamp(delta_pos, -lim, lim)
-        self.variable_group.probe_positions.tensor[indices] += 1e-1 * delta_pos
+            
+        delta_pos_full = torch.zeros_like(self.variable_group.probe_positions.tensor)
+        delta_pos_full[indices] = delta_pos
+        self.variable_group.probe_positions.set_grad(-delta_pos_full)
+        self.variable_group.probe_positions.optimizer.step()
         
     def _calculate_fourier_probe_position_update_direction(self, chi, positions, obj_patches):
         """
