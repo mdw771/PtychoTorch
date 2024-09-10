@@ -365,7 +365,8 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
         for i_epoch in tqdm.trange(self.n_epochs):
             
             # Update preconditioner at the start of each epoch
-            self.update_preconditioners()
+            with torch.no_grad():
+                self.update_preconditioners()
             
             for batch_data in self.dataloader:
                 input_data = [x.to(torch.get_default_device()) for x in batch_data[:-1]]
