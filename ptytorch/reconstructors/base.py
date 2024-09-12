@@ -10,7 +10,19 @@ from ptytorch.utils import to_numpy
 
 class LossTracker:
 
-    def __init__(self, metric_function: Optional[torch.nn.Module] = None, *args, **kwargs) -> None:
+    def __init__(self, 
+                 metric_function: Optional[torch.nn.Module] = None, 
+                 always_compute_loss: bool = False, 
+                 *args, **kwargs) -> None:
+        """
+        The loss tracker is used to track the loss during reconstruction.
+
+        :param metric_function: a function that takes y_pred and y_true and returns a loss.
+        :param always_compute_loss: determines the behavior of update_batch_loss. If True,
+            the loss is computed using the metric function as long as y_pred and y_true
+            are given. Otherwise, the tracker logs the provided loss value if it is given,
+            only computing the loss when it is not.
+        """
         super().__init__(*args, **kwargs)
         self.table = pd.DataFrame(columns=['epoch', 'loss'])
         self.table['epoch'] = self.table['epoch'].astype(int)
@@ -18,6 +30,7 @@ class LossTracker:
         self.epoch_loss = 0.0
         self.accumulated_num_batches = 0
         self.epoch = 0
+        self.always_compute_loss = always_compute_loss
 
     def conclude_epoch(self, epoch: Optional[int] = None) -> None:
         self.epoch_loss = self.epoch_loss / self.accumulated_num_batches
@@ -34,16 +47,18 @@ class LossTracker:
                           y_pred: Optional[torch.Tensor] = None, 
                           y_true: Optional[torch.Tensor] = None, 
                           loss: Optional[float] = None,
-                          batch_size: Optional[int] = None
     ) -> None:
         data_provided = y_pred is not None and y_true is not None
-        loss_provided = loss is not None and batch_size is not None
-        assert (data_provided or loss_provided) - (data_provided and loss_provided), \
-            'One and only one of (y_pred, y_true) and (loss, batch_size) must be provided.'
-        if data_provided:
-            self.update_batch_loss_with_metric_function(y_pred, y_true)
+        loss_provided = loss is not None
+        if self.always_compute_loss:
+            assert data_provided, "Always_compute_loss requires (y_pred, y_true) to be provided."
+        assert (data_provided or loss_provided), \
+            "One of (y_pred, y_true) and (loss,) must be provided."
+            
+        if loss_provided and not self.always_compute_loss:
+            self.update_batch_loss_with_value(loss)
         else:
-            self.update_batch_loss_with_value(loss, batch_size)
+            self.update_batch_loss_with_metric_function(y_pred, y_true)
         
     def update_batch_loss_with_metric_function(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> None:
         assert self.metric_function is not None, \

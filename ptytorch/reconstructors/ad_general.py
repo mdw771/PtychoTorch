@@ -48,7 +48,10 @@ class AutodiffReconstructor(IterativeReconstructor):
         
     def build_loss_tracker(self):
         f = self.loss_function if self.metric_function is None else self.metric_function
-        self.loss_tracker = LossTracker(metric_function=f)
+        # LossTracker should always compute the loss using data if metric function and loss function
+        # are not the same type.
+        always_compute_loss = (self.metric_function is not None) and (type(self.metric_function) != type(self.loss_function))
+        self.loss_tracker = LossTracker(metric_function=f, always_compute_loss=always_compute_loss)
 
     def build_forward_model(self):
         self.forward_model = self.forward_model_class(self.variable_group, **self.forward_model_params)
@@ -70,7 +73,7 @@ class AutodiffReconstructor(IterativeReconstructor):
                 self.step_all_optimizers()
                 self.forward_model.zero_grad()
 
-                self.loss_tracker.update_batch_loss_with_value(batch_loss.item())
+                self.loss_tracker.update_batch_loss(y_pred=y_pred, y_true=y_true, loss=batch_loss.item())
             self.loss_tracker.conclude_epoch(epoch=i_epoch)
             self.loss_tracker.print_latest()
 
