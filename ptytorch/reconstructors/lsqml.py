@@ -370,3 +370,7 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
                     self.loss_tracker.update_batch_loss_with_metric_function(y_pred, y_true)
             self.loss_tracker.conclude_epoch(epoch=i_epoch)
             self.loss_tracker.print_latest()
+            
+    def get_config_dict(self) -> dict:
+        d = super().get_config_dict()
+        d.update({'noise_model': self.noise_model.noise_statistics})
