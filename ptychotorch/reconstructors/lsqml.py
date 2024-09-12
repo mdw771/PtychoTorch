@@ -5,14 +5,14 @@ import torch
 import tqdm
 from torch.utils.data import Dataset
 
-from ptytorch.reconstructors.base import AnalyticalIterativeReconstructor, LossTracker
-from ptytorch.data_structures import Ptychography2DVariableGroup
-from ptytorch.forward_models import Ptychography2DForwardModel, PtychographyGaussianNoiseModel, PtychographyPoissonNoiseModel
-from ptytorch.metrics import MSELossOfSqrt
-import ptytorch.propagation as prop
-from ptytorch.image_proc import place_patches_fourier_shift, extract_patches_fourier_shift, gaussian_gradient
-from ptytorch.utils import chunked_processing
-import ptytorch.math as pmath
+from ptychotorch.reconstructors.base import AnalyticalIterativeReconstructor, LossTracker
+from ptychotorch.data_structures import Ptychography2DVariableGroup
+from ptychotorch.forward_models import Ptychography2DForwardModel, PtychographyGaussianNoiseModel, PtychographyPoissonNoiseModel
+from ptychotorch.metrics import MSELossOfSqrt
+import ptychotorch.propagation as prop
+from ptychotorch.image_proc import place_patches_fourier_shift, extract_patches_fourier_shift, gaussian_gradient
+from ptychotorch.utils import chunked_processing
+import ptychotorch.math as pmath
 
 
 class LSQMLReconstructor(AnalyticalIterativeReconstructor):

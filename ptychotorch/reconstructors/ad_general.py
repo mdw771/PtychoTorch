@@ -4,9 +4,9 @@ import torch
 import tqdm
 from torch.utils.data import Dataset
 
-from ptytorch.data_structures import VariableGroup
-from ptytorch.forward_models import ForwardModel
-from ptytorch.reconstructors.base import IterativeReconstructor, LossTracker
+from ptychotorch.data_structures import VariableGroup
+from ptychotorch.forward_models import ForwardModel
+from ptychotorch.reconstructors.base import IterativeReconstructor, LossTracker
 
 
 class AutodiffReconstructor(IterativeReconstructor):

@@ -3,11 +3,11 @@ requires = ["setuptools", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ptytorch"
+name = "ptychotorch"
 authors = [
     {name = ""},
 ]
-description = "ptytorch"
+description = "ptychotorch"
 readme = "README.md"
 license = {file = "LICENSE.txt"}
 requires-python = ">=3.10"
