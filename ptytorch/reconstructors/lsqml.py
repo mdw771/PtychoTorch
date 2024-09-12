@@ -70,7 +70,7 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
         
     def get_psi_far_step_size(self, y_pred, y_true, indices, eps=1e-5):
         if isinstance(self.noise_model, PtychographyGaussianNoiseModel):
-            alpha = 0.5  # Eq. 16
+            alpha = torch.tensor(0.5, device=y_pred.device)  # Eq. 16
         elif isinstance(self.noise_model, PtychographyPoissonNoiseModel):
             # This implementation reproduces PtychoShelves (gradient_descent_xi_solver)
             # and is different from Eq. 17 of Odstrcil (2018). 
