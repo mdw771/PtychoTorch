@@ -374,3 +374,4 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
     def get_config_dict(self) -> dict:
         d = super().get_config_dict()
         d.update({'noise_model': self.noise_model.noise_statistics})
+        return d
