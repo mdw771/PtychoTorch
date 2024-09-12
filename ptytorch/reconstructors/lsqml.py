@@ -50,24 +50,46 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
             'gaussian': PtychographyGaussianNoiseModel, 
             'poisson': PtychographyPoissonNoiseModel
             }[noise_model](**noise_model_params)
+        
         self.alpha_psi_far = 0.5
+        self.alpha_psi_far_all_points = None
+        
+    def build(self) -> None:
+        super().build()
+        self.build_cached_variables()
         
     def build_loss_tracker(self):
         f = self.noise_model.nll if self.metric_function is None else self.metric_function
         self.loss_tracker = LossTracker(metric_function=f)
         
-    def get_psi_far_step_size(self, y_pred, y_true):
-        if isinstance(self.noise_model, PtychographyGaussianNoiseModel):
-            alpha = 0.5
-            return alpha  # Eq. 16
-        elif isinstance(self.noise_model, PtychographyPoissonNoiseModel):
-            xi = 1 - y_true / y_pred  # Eq. 17
-            batchsize = y_true.shape[0]
-            alpha = torch.sum(y_pred - xi * (y_true / (1 - self.alpha_psi_far * xi))) / batchsize
-            alpha = alpha / (torch.sum(xi ** 2 * y_pred) / batchsize)
-            return alpha
+    def build_cached_variables(self):
+        self.alpha_psi_far_all_points = torch.full(
+            size=(self.variable_group.probe_positions.shape[0],),
+            fill_value=0.5
+        )
         
-    def run_reciprocal_space_step(self, y_pred, y_true):
+    def get_psi_far_step_size(self, y_pred, y_true, indices, eps=1e-5):
+        if isinstance(self.noise_model, PtychographyGaussianNoiseModel):
+            alpha = 0.5  # Eq. 16
+        elif isinstance(self.noise_model, PtychographyPoissonNoiseModel):
+            # This implementation reproduces PtychoShelves (gradient_descent_xi_solver)
+            # and is different from Eq. 17 of Odstrcil (2018). 
+            xi = 1 - y_true / (y_pred + eps)
+            for _ in range(2):
+                alpha_prev = self.alpha_psi_far_all_points[indices].mean()
+                alpha = (xi * (y_pred - y_true / (1 - alpha_prev * xi))).sum(-1).sum(-1)
+                alpha = alpha / (xi ** 2 * y_pred).sum(-1).sum(-1)
+                # Use previous step size as momentum.
+                alpha = 0.5 * alpha_prev + 0.5 * alpha
+                alpha = alpha.clamp(0, 1)
+                self.alpha_psi_far_all_points[indices] = alpha
+            # Add perturbation.
+            alpha = alpha + torch.randn(alpha.shape, device=alpha.device) * 1e-2
+            self.alpha_psi_far_all_points[indices] = alpha
+            logging.debug('poisson alpha_psi_far: mean = {}'.format(torch.mean(alpha)))
+        return alpha
+        
+    def run_reciprocal_space_step(self, y_pred, y_true, indices):
         """
         Run step 1 of LSQ-ML, which updates psi. 
         
@@ -76,8 +98,8 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
         # gradient as in Eq. 12a/b
         psi_far_0 = self.forward_model.intermediate_variables['psi_far']
         dl_dpsi_far = self.noise_model.backward_to_psi_far(y_pred, y_true, psi_far_0)
-        self.alpha_psi_far = self.get_psi_far_step_size(y_pred, y_true)
-        psi_far = psi_far_0 - self.alpha_psi_far * dl_dpsi_far  # Eq. 14
+        self.alpha_psi_far = self.get_psi_far_step_size(y_pred, y_true, indices)
+        psi_far = psi_far_0 - self.alpha_psi_far.view(-1, 1, 1, 1) * dl_dpsi_far  # Eq. 14
         
         psi_opt = prop.back_propagate_far_field(psi_far)
         return psi_opt
@@ -364,7 +386,7 @@ class LSQMLReconstructor(AnalyticalIterativeReconstructor):
                 with torch.no_grad():
                     y_pred = self.forward_model(*input_data)
                     
-                    psi_opt = self.run_reciprocal_space_step(y_pred, y_true)
+                    psi_opt = self.run_reciprocal_space_step(y_pred, y_true, indices)
                     self.run_real_space_step(psi_opt, indices)
                     
                     self.loss_tracker.update_batch_loss_with_metric_function(y_pred, y_true)

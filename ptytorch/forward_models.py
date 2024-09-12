@@ -223,7 +223,7 @@ class PtychographyPoissonNoiseModel(PoissonNoiseModel):
         """
         Compute the gradient of the NLL with respect to far field wavefront.
         """
-        g = 1 - y_true / y_pred  # Eq. 12b
+        g = 1 - y_true / (y_pred + self.eps)  # Eq. 12b
         g = g[:, None, :, :] * psi_far
         return g
         
