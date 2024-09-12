@@ -154,8 +154,10 @@ def test_2d_ptycho_lsqml_poscorr(pytestconfig, generate_gold=False, debug=False,
     if debug:
         import matplotlib.pyplot as plt
         pos = reconstructor.variable_group.probe_positions.tensor.detach().cpu().numpy()
+        pos_true = load_data(pos_type='true')[2]
         plt.figure()
-        plt.plot(pos[:, 1], pos[:, 0])
+        plt.plot(pos[:, 1], pos[:, 0], label='corrected')
+        plt.plot(pos_true[:, 1], pos_true[:, 0], label='true')
         plt.show()
     
     compare_results(recon, gold_dir, generate_gold=generate_gold, high_tol=high_tol)
