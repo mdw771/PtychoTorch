@@ -60,9 +60,9 @@ def orthogonalize_gs(
     return torch.moveaxis(u, 0, group_dim)
 
 
-def project(a, b, dim=None):
+def project(a, b, dim=None, eps=1e-5):
     """Return complex vector projection of a onto b for along given axis."""
-    bh = b / inner(b, b, dim=dim, keepdims=True)
+    bh = b / (inner(b, b, dim=dim, keepdims=True) + eps)
     return inner(a, b, dim=dim, keepdims=True) * bh
 
 

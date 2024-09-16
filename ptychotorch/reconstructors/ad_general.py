@@ -72,6 +72,7 @@ class AutodiffReconstructor(IterativeReconstructor):
                 self.get_forward_model().post_differentiation_hook(*input_data, y_true)
                 self.step_all_optimizers()
                 self.forward_model.zero_grad()
+                self.run_post_update_hooks()
 
                 self.loss_tracker.update_batch_loss(y_pred=y_pred, y_true=y_true, loss=batch_loss.item())
             self.loss_tracker.conclude_epoch(epoch=i_epoch)
