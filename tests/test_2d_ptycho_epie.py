@@ -23,6 +23,7 @@ def test_2d_ptycho_epie(generate_gold=False, debug=False):
     tutils.setup(gold_dir, cpu_only=True)
     
     dataset, probe, pixel_size_m, positions_px = tutils.load_tungsten_data(additional_opr_modes=0)
+    probe = probe[:, [0], :, :]
     
     object = Object2D(
         data=torch.ones(get_suggested_object_size(positions_px, probe.shape[-2:], extra=100), dtype=get_default_complex_dtype()), 
@@ -57,6 +58,12 @@ def test_2d_ptycho_epie(generate_gold=False, debug=False):
 
     recon = reconstructor.variable_group.object.tensor.complex().detach().cpu().numpy()
     
+    if debug:
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots(1, 2)
+        ax[0].imshow(np.abs(recon))
+        ax[1].imshow(np.angle(recon))
+        plt.show()
     if generate_gold:
         np.save(os.path.join(gold_dir, 'recon.npy'), recon)
     else:

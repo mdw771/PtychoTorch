@@ -46,7 +46,7 @@ def test_2d_ptycho_lsqml(pytestconfig, generate_gold=False, debug=False, high_to
     
     tutils.setup(gold_dir, cpu_only=True)
 
-    dataset, probe, positions_px, pixel_size_m = tutils.load_tungsten_data(pos_type='true')
+    dataset, probe, pixel_size_m, positions_px = tutils.load_tungsten_data(pos_type='true')
     
     object = Object2D(
         data=torch.ones(get_suggested_object_size(positions_px, probe.shape[-2:], extra=100), dtype=get_default_complex_dtype()), 
@@ -90,7 +90,7 @@ def test_2d_ptycho_lsqml_poscorr(pytestconfig, generate_gold=False, debug=False,
     
     tutils.setup(gold_dir, cpu_only=True)
 
-    dataset, probe, positions_px, pixel_size_m = tutils.load_tungsten_data(pos_type='true')
+    dataset, probe, pixel_size_m, positions_px = tutils.load_tungsten_data(pos_type='nominal')
     
     object = Object2D(
         data=torch.ones(get_suggested_object_size(positions_px, probe.shape[-2:], extra=100), dtype=get_default_complex_dtype()), 
@@ -130,7 +130,7 @@ def test_2d_ptycho_lsqml_poscorr(pytestconfig, generate_gold=False, debug=False,
     if debug:
         import matplotlib.pyplot as plt
         pos = reconstructor.variable_group.probe_positions.tensor.detach().cpu().numpy()
-        pos_true = load_data(pos_type='true')[2]
+        pos_true = tutils.load_tungsten_data(pos_type='true')[3]
         plt.figure()
         plt.plot(pos[:, 1], pos[:, 0], label='corrected')
         plt.plot(pos_true[:, 1], pos_true[:, 0], label='true')
