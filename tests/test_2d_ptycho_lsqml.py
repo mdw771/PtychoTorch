@@ -15,34 +15,7 @@ from ptychotorch.utils import (get_suggested_object_size, set_default_complex_dt
                             rescale_probe)
 from ptychotorch.reconstructors import *
 
-
-def setup(gold_dir):
-    if not os.path.exists(gold_dir):
-        os.makedirs(gold_dir)
-    
-    torch.manual_seed(123)
-    random.seed(123)
-    torch.use_deterministic_algorithms(True)
-    
-    torch.set_default_device('cpu')
-    torch.set_default_dtype(torch.float32)
-    set_default_complex_dtype(torch.complex64)
-
-
-def load_data(pos_type='nominal'):
-    patterns = h5py.File('data/2d_ptycho/dp_250.hdf5', 'r')['dp'][...]
-    dataset = PtychographyDataset(patterns)
-
-    f_meta = h5py.File('data/2d_ptycho/metadata_250_{}Pos.hdf5'.format(pos_type), 'r')
-    probe = f_meta['probe'][...]
-    probe = rescale_probe(probe, patterns)
-    probe = probe[None, :, :, :]
-    
-    positions = np.stack([f_meta['probe_position_y_m'][...], f_meta['probe_position_x_m'][...]], axis=1)
-    pixel_size_m = 8e-9
-    positions_px = positions / pixel_size_m
-    
-    return dataset, probe, positions_px, pixel_size_m
+import test_utils as tutils
     
 
 def compare_results(recon, gold_dir, generate_gold=False, high_tol=False):
@@ -70,9 +43,10 @@ def test_2d_ptycho_lsqml(pytestconfig, generate_gold=False, debug=False, high_to
         high_tol = pytestconfig.getoption("high_tol")
         
     gold_dir = os.path.join('gold_data', 'test_2d_ptycho_lsqml')
-    setup(gold_dir)
+    
+    tutils.setup(gold_dir, cpu_only=True)
 
-    dataset, probe, positions_px, pixel_size_m = load_data(pos_type='true')
+    dataset, probe, positions_px, pixel_size_m = tutils.load_tungsten_data(pos_type='true')
     
     object = Object2D(
         data=torch.ones(get_suggested_object_size(positions_px, probe.shape[-2:], extra=100), dtype=get_default_complex_dtype()), 
@@ -113,9 +87,10 @@ def test_2d_ptycho_lsqml_poscorr(pytestconfig, generate_gold=False, debug=False,
         high_tol = pytestconfig.getoption("high_tol")
         
     gold_dir = os.path.join('gold_data', 'test_2d_ptycho_lsqml_poscorr')
-    setup(gold_dir)
+    
+    tutils.setup(gold_dir, cpu_only=True)
 
-    dataset, probe, positions_px, pixel_size_m = load_data(pos_type='nominal')
+    dataset, probe, positions_px, pixel_size_m = tutils.load_tungsten_data(pos_type='true')
     
     object = Object2D(
         data=torch.ones(get_suggested_object_size(positions_px, probe.shape[-2:], extra=100), dtype=get_default_complex_dtype()), 
