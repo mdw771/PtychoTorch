@@ -36,7 +36,7 @@ def load_data_ptychodus(diffraction_pattern_file, parameter_file, additional_opr
         probe = add_additional_opr_probe_modes_to_probe(probe, n_opr_modes_to_add=additional_opr_modes)
     
     positions = np.stack([f_meta['probe_position_y_m'][...], f_meta['probe_position_x_m'][...]], axis=1)
-    pixel_size_m = 8e-9
+    pixel_size_m = f_meta['object'].attrs['pixel_height_m']
     positions_px = positions / pixel_size_m
     
     return dataset, probe, pixel_size_m, positions_px
