@@ -65,8 +65,8 @@ probe_positions = ProbePositions(
 opr_mode_weights = OPRModeWeights(
     data=generate_initial_opr_mode_weights(len(positions_px), probe.shape[0], eigenmode_weight=0.1),
     optimizable=True,
-    optimizer_class=torch.optim.SGD,
-    optimizer_params={'lr': 1}
+    optimize_intensity_variation=True,
+    optimize_eigenmode_weights=True
 )
 
 reconstructor = LSQMLReconstructor(
