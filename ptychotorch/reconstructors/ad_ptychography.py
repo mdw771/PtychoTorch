@@ -32,36 +32,27 @@ class AutodiffPtychographyReconstructor(AutodiffReconstructor):
             metric_function=metric_function,
             *args, **kwargs
         )
-        
+
     def run_post_update_hooks(self) -> None:
         with torch.no_grad():
             if self.variable_group.object.optimizable:
                 self.variable_group.object.post_update_hook()
-            
+
             if self.variable_group.probe.optimizable and self.variable_group.opr_mode_weights.optimizable:
                 weights = self.variable_group.probe.post_update_hook(self.variable_group.opr_mode_weights)
                 self.variable_group.opr_mode_weights.set_data(weights)
-            
+
             if self.variable_group.probe_positions.optimizable:
                 self.variable_group.probe_positions.post_update_hook()
-            
-    def run(self, *args, **kwargs):
-        for i_epoch in tqdm.trange(self.n_epochs):
-            for batch_data in self.dataloader:
-                input_data = [x.to(torch.get_default_device()) for x in batch_data[:-1]]
-                y_true = batch_data[-1].to(torch.get_default_device())
-
-                y_pred = self.forward_model(*input_data)
-                batch_loss = self.loss_function(
-                    y_pred[:, self.dataset.valid_pixel_mask], y_true[:, self.dataset.valid_pixel_mask]
-                )
-
-                batch_loss.backward()
-                self.get_forward_model().post_differentiation_hook(*input_data, y_true)
-                self.step_all_optimizers()
-                self.forward_model.zero_grad()
-                self.run_post_update_hooks()
-
-                self.loss_tracker.update_batch_loss(y_pred=y_pred, y_true=y_true, loss=batch_loss.item())
-            self.loss_tracker.conclude_epoch(epoch=i_epoch)
-            self.loss_tracker.print_latest()
+                
+    def run_minibatch(self, input_data, y_true, *args, **kwargs):
+        y_pred = self.forward_model(*input_data)
+        batch_loss = self.loss_function(
+            y_pred[:, self.dataset.valid_pixel_mask], y_true[:, self.dataset.valid_pixel_mask]
+        )
+        batch_loss.backward()
+        self.get_forward_model().post_differentiation_hook(*input_data, y_true)
+        self.step_all_optimizers()
+        self.forward_model.zero_grad()
+        self.run_post_update_hooks()
+        self.loss_tracker.update_batch_loss(y_pred=y_pred, y_true=y_true, loss=batch_loss.item())
